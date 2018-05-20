@@ -25,6 +25,10 @@ import prettytable
 import six
 from six.moves.urllib import parse
 
+from datetime import datetime
+import dateutil
+from dateutil import parser
+
 from novaclient import exceptions
 from novaclient.i18n import _
 
@@ -161,6 +165,36 @@ def pretty_choice_dict(d):
     return pretty_choice_list(['%s=%s' % (k, d[k]) for k in sorted(d.keys())])
 
 
+def parse_date(string_data):
+    """Parses a date-like input string into a timezone aware Python
+    datetime.
+    """
+    if not isinstance(string_data, six.string_types):
+        return string_data
+
+    pattern = r'(\d{4}-\d{2}-\d{2}[T ])?\d{2}:\d{2}:\d{2}(\.\d{6})?Z?'
+
+    def convert_date(matchobj):
+        formats = ["%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d %H:%M:%S.%f",
+                   "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S",
+                   "%Y-%m-%dT%H:%M:%SZ", "%H:%M:%S"]
+        datestring = matchobj.group(0)
+        if datestring:
+            for format in formats:
+                try:
+                    datetime.strptime(datestring, format)
+                    datestring += "+0000"
+                    parsed = parser.parse(datestring)
+                    converted = parsed.astimezone(dateutil.tz.tzlocal())
+                    converted = datetime.strftime(converted, format)
+                    return converted
+                except Exception:
+                    pass
+        return datestring
+
+    return re.sub(pattern, convert_date, string_data)
+
+
 def print_list(objs, fields, formatters={}, sortby_index=None):
     if sortby_index is None:
         sortby = None
@@ -174,7 +208,7 @@ def print_list(objs, fields, formatters={}, sortby_index=None):
         row = []
         for field in fields:
             if field in formatters:
-                row.append(formatters[field](o))
+                row.append(parse_date(formatters[field](o)))
             else:
                 if field in mixed_case_fields:
                     field_name = field.replace(' ', '_')
@@ -185,6 +219,7 @@ def print_list(objs, fields, formatters={}, sortby_index=None):
                     data = '-'
                 # '\r' would break the table, so remove it.
                 data = six.text_type(data).replace("\r", "")
+                data = parse_date(data)
                 row.append(data)
         pt.add_row(row)
 
@@ -251,6 +286,7 @@ def print_dict(d, dict_property="Property", dict_value="Value", wrap=0):
             v = textwrap.fill(six.text_type(v), wrap)
         # if value has a newline, add in multiple rows
         # e.g. fault with stacktrace
+        v = parse_date(v)
         if v and isinstance(v, six.string_types) and (r'\n' in v or '\r' in v):
             # '\r' would break the table, so remove it.
             if '\r' in v:
@@ -341,6 +377,29 @@ def format_servers_list_networks(server):
         group = "%s=%s" % (network, addresses_csv)
         output.append(group)
 
+    return '; '.join(output)
+
+
+def _format_servers_list_addresses(server):
+    output = []
+    unsorted_nics = getattr(server, 'wrs-if:nics', [])
+    # Each entry in the nics list is a single key dictionary where the key is
+    # the name of the nic (e.g., nic0) and the value is a dictionary of the nic
+    # attributes.  For example,
+    #         nics = [{'nic0': {'network': 'net1', 'vif-model': 'virtio'...}},
+    #                 {'nic1': {'network': 'net2', 'vif-model': 'avp'...}}]
+    #
+    for entry in sorted(unsorted_nics, key=lambda nic: nic.keys()[0]):
+        nic = entry.values()[0]
+        addresses = []
+        for address in server.addresses.get(nic['network'], []):
+            if address['addr'] is None:
+                continue
+            if address['OS-EXT-IPS-MAC:mac_addr'] == nic['mac_address']:
+                addresses.append(address['addr'])
+        addresses_csv = ', '.join([a for a in addresses] or ["No Address"])
+        group = "%s=%s" % (nic['network'], addresses_csv)
+        output.append(group)
     return '; '.join(output)
 
 

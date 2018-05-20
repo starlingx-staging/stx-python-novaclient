@@ -15,6 +15,9 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+#
+# Copyright (c) 2013-2016 Wind River Systems, Inc.
+#
 
 from __future__ import print_function
 
@@ -22,6 +25,7 @@ import argparse
 import collections
 import datetime
 import getpass
+import json
 import logging
 import os
 import pprint
@@ -121,6 +125,26 @@ def _meta_parsing(metadata):
     except ValueError:
         msg = _("'%s' is not in the format of 'key=value'") % metadata
         raise argparse.ArgumentTypeError(msg)
+
+
+# WRS:extension - type checking for key-value pair
+# returns text instead of tuple like above
+def _key_value_type(text):
+    try:
+        (k, v) = text.split('=', 1)
+        return text
+    except ValueError:
+        msg = "%r is not in the format of key=value" % text
+        raise argparse.ArgumentTypeError(msg)
+
+
+# WRS:extension - type checking for CSV key-value pairs
+def _csv_key_value_type(text):
+    try:
+        return map(_key_value_type, text.split(','))
+    except Exception as e:
+        raise exceptions.CommandError(
+            "Invalid csv key-value argument '%s'. %s" % (text, unicode(e)))
 
 
 def _match_image(cs, wanted_properties):
@@ -268,7 +292,8 @@ def _parse_nics(cs, args):
     supports_auto_alloc = cs.api_version >= api_versions.APIVersion('2.37')
     supports_nic_tags = _supports_nic_tags(cs)
 
-    nic_keys = {'net-id', 'v4-fixed-ip', 'v6-fixed-ip', 'port-id', 'net-name'}
+    nic_keys = {'net-id', 'v4-fixed-ip', 'v6-fixed-ip', 'port-id', 'net-name',
+                'vif-model', 'vif-pci-address'}
 
     if supports_auto_alloc and supports_nic_tags:
         # API version >= 2.42
@@ -276,36 +301,40 @@ def _parse_nics(cs, args):
         err_msg = (_("Invalid nic argument '%s'. Nic arguments must be of "
                      "the form --nic <auto,none,net-id=net-uuid,"
                      "net-name=network-name,v4-fixed-ip=ip-addr,"
-                     "v6-fixed-ip=ip-addr,port-id=port-uuid,tag=tag>, "
-                     "with only one of net-id, net-name or port-id "
-                     "specified. Specifying a --nic of auto or none cannot "
-                     "be used with any other --nic value."))
+                     "v6-fixed-ip=ip-addr,port-id=port-uuid,tag=tag,"
+                     "vif-model=model,vif-pci-address=pci-address>, "
+                     "with at minimum net-id, net-name or port-id "
+                     "(but not both) specified. Specifying a --nic of auto "
+                     "or none cannot be used with any other --nic value."))
     elif supports_auto_alloc and not supports_nic_tags:
         # 2.41 >= API version >= 2.37
         err_msg = (_("Invalid nic argument '%s'. Nic arguments must be of "
                      "the form --nic <auto,none,net-id=net-uuid,"
                      "net-name=network-name,v4-fixed-ip=ip-addr,"
-                     "v6-fixed-ip=ip-addr,port-id=port-uuid>, "
-                     "with only one of net-id, net-name or port-id "
-                     "specified. Specifying a --nic of auto or none cannot "
-                     "be used with any other --nic value."))
+                     "v6-fixed-ip=ip-addr,port-id=port-uuid, "
+                     "vif-model=model>, "
+                     "with at minimum net-id, net-name or port-id "
+                     "(but not both) specified. Specifying a --nic of auto "
+                     "or none cannot be used with any other --nic value."))
     elif not supports_auto_alloc and supports_nic_tags:
         # 2.36 >= API version >= 2.32
         nic_keys.add('tag')
         err_msg = (_("Invalid nic argument '%s'. Nic arguments must be of "
                      "the form --nic <net-id=net-uuid,"
                      "net-name=network-name,v4-fixed-ip=ip-addr,"
-                     "v6-fixed-ip=ip-addr,port-id=port-uuid,tag=tag>, "
-                     "with only one of net-id, net-name or port-id "
-                     "specified."))
+                     "v6-fixed-ip=ip-addr,port-id=port-uuid,tag=tag,"
+                     "vif-model=model,vif-pci-address=pci-address>,"
+                     "with at minimum net-id, net-name or port-id "
+                     "(but not both) specified."))
     else:
         # API version <= 2.31
         err_msg = (_("Invalid nic argument '%s'. Nic arguments must be of "
                      "the form --nic <net-id=net-uuid,"
                      "net-name=network-name,v4-fixed-ip=ip-addr,"
-                     "v6-fixed-ip=ip-addr,port-id=port-uuid>, "
-                     "with only one of net-id, net-name or port-id "
-                     "specified."))
+                     "v6-fixed-ip=ip-addr,port-id=port-uuid,"
+                     "vif-model=model,vif-pci-address=pci-address>, "
+                     "with at minimum net-id, net-name or port-id "
+                     "(but not both) specified."))
     auto_or_none = False
     nics = []
     for nic_str in args.nics:
@@ -759,7 +788,8 @@ def _boot(cs, args):
 @utils.arg(
     '--nic',
     metavar="<net-id=net-uuid,net-name=network-name,v4-fixed-ip=ip-addr,"
-            "v6-fixed-ip=ip-addr,port-id=port-uuid>",
+            "v6-fixed-ip=ip-addr,port-id=port-uuid,vif-model=model,"
+            "vif-pci-address=pci-address>",
     action='append',
     dest='nics',
     default=[],
@@ -772,12 +802,15 @@ def _boot(cs, args):
            "(either port-id or net-id or net-name must be provided), "
            "v4-fixed-ip: IPv4 fixed address for NIC (optional), "
            "v6-fixed-ip: IPv6 fixed address for NIC (optional), "
-           "port-id: attach NIC to port with this UUID "
+           "port-id: attach NIC to port with this UUID, "
+           "vif-model: emulated hardware device type (optional), "
+           "vif-pci-address: emulated device PCI address (optional), "
            "(either port-id or net-id must be provided)."))
 @utils.arg(
     '--nic',
     metavar="<net-id=net-uuid,net-name=network-name,v4-fixed-ip=ip-addr,"
-            "v6-fixed-ip=ip-addr,port-id=port-uuid,tag=tag>",
+            "v6-fixed-ip=ip-addr,port-id=port-uuid,tag=tag,vif-model=model,"
+            "vif-pci-address=pci-address>",
     action='append',
     dest='nics',
     default=[],
@@ -790,14 +823,17 @@ def _boot(cs, args):
            "(either port-id or net-id or net-name must be provided), "
            "v4-fixed-ip: IPv4 fixed address for NIC (optional), "
            "v6-fixed-ip: IPv6 fixed address for NIC (optional), "
-           "port-id: attach NIC to port with this UUID "
+           "port-id: attach NIC to port with this UUID, "
            "tag: interface metadata tag (optional) "
+           "vif-model: emulated hardware device type (optional), "
+           "vif-pci-address: emulated device PCI address (optional), "
            "(either port-id or net-id must be provided)."))
 @utils.arg(
     '--nic',
     metavar="<auto,none,"
             "net-id=net-uuid,net-name=network-name,port-id=port-uuid,"
-            "v4-fixed-ip=ip-addr,v6-fixed-ip=ip-addr>",
+            "v4-fixed-ip=ip-addr,v6-fixed-ip=ip-addr,vif-model=model,"
+            "vif-pci-address=pci-address>",
     action='append',
     dest='nics',
     default=[],
@@ -817,12 +853,15 @@ def _boot(cs, args):
            "v4-fixed-ip: IPv4 fixed address for NIC (optional), "
            "v6-fixed-ip: IPv6 fixed address for NIC (optional), "
            "port-id: attach NIC to port with this UUID "
+           "vif-model: emulated hardware device type (optional), "
+           "vif-pci-address: emulated device PCI address (optional), "
            "(either port-id or net-id must be provided)."))
 @utils.arg(
     '--nic',
     metavar="<auto,none,"
             "net-id=net-uuid,net-name=network-name,port-id=port-uuid,"
-            "v4-fixed-ip=ip-addr,v6-fixed-ip=ip-addr,tag=tag>",
+            "v4-fixed-ip=ip-addr,v6-fixed-ip=ip-addr,tag=tag,vif-model=model,"
+            "vif-pci-address=pci-address>",
     action='append',
     dest='nics',
     default=[],
@@ -840,8 +879,10 @@ def _boot(cs, args):
            "(either port-id or net-id or net-name must be provided), "
            "v4-fixed-ip: IPv4 fixed address for NIC (optional), "
            "v6-fixed-ip: IPv6 fixed address for NIC (optional), "
-           "port-id: attach NIC to port with this UUID "
+           "port-id: attach NIC to port with this UUID, "
            "tag: interface metadata tag (optional) "
+           "vif-model: emulated hardware device type (optional), "
+           "vif-pci-address: emulated device PCI address (optional), "
            "(either port-id or net-id must be provided)."))
 @utils.arg(
     '--config-drive',
@@ -952,15 +993,22 @@ def _poll_for_status(poll_fn, obj_id, action, final_ok_states,
     if not silent:
         print()
 
+    # Glance API v1 and v2 behave differently.
+    # In v1 it is possible to retrieve an image in 'deleted' state,
+    # but in v2 this does not seem possible. Prepare to catch a
+    # "NotFound' exception in poll function.
+    obj = None
     while True:
-        obj = poll_fn(obj_id)
-
-        status = getattr(obj, status_field)
+        try:
+            obj = poll_fn(obj_id)
+            status = getattr(obj, status_field)
+            progress = getattr(obj, 'progress', None) or 0
+        except exceptions.NotFound:
+            status = "deleted"
 
         if status:
             status = status.lower()
 
-        progress = getattr(obj, 'progress', None) or 0
         if status in final_ok_states:
             if not silent:
                 print_progress(100)
@@ -973,7 +1021,15 @@ def _poll_for_status(poll_fn, obj_id, action, final_ok_states,
         elif status == "deleted":
             if not silent:
                 print(_("\nDeleted %s server") % action)
-            raise exceptions.InstanceInDeletedState(obj.fault["message"])
+            msg = None
+            if obj is not None:
+                msg = getattr(obj, 'metadata', {}).get('kill_reason')
+            if msg is None:
+                msg = getattr(
+                    obj, 'fault',
+                    {'message': 'check logs for uuid {}'.format(obj_id)}
+                )['message']
+            raise exceptions.InstanceInDeletedState(msg)
 
         if not silent:
             print_progress(progress)
@@ -1282,18 +1338,23 @@ def do_flavor_access_remove(cs, args):
     utils.print_list(access_list, columns)
 
 
+# WRS:extension -- handle multiple metadata key/value pairs in the form of
+# --metadata key1=value1 --metadata key2=value2
+# Note that multiple metadata options can also be specified like this:
+# --metadata key1=value1,key2=value2
 def _extract_metadata(args):
     metadata = {}
-    for metadatum in args.metadata[0]:
-        # Can only pass the key in on 'delete'
-        # So this doesn't have to have '='
-        if metadatum.find('=') > -1:
-            (key, value) = metadatum.split('=', 1)
-        else:
-            key = metadatum
-            value = None
+    for group in args.metadata:
+        for metadatum in group:
+            # Can only pass the key in on 'delete'
+            # So this doesn't have to have '='
+            if metadatum.find('=') > -1:
+                (key, value) = metadatum.split('=', 1)
+            else:
+                key = metadatum
+                value = None
+            metadata[key] = value
 
-        metadata[key] = value
     return metadata
 
 
@@ -1774,6 +1835,12 @@ def do_reboot(cs, args):
     default=[],
     help=_("Store arbitrary files from <src-path> locally to <dst-path> "
            "on the new server. You may store up to 5 files."))
+@utils.arg(
+    '--userdata',
+    metavar='<userdata>',
+    default=None,
+    help=_('New userdata for the new server.'),
+    start_version="2.19")
 def do_rebuild(cs, args):
     """Shutdown, re-image, and re-boot a server."""
     server = _find_server(cs, args.server)
@@ -1786,6 +1853,10 @@ def do_rebuild(cs, args):
 
     kwargs = utils.get_resource_manager_extra_kwargs(do_rebuild, args)
     kwargs['preserve_ephemeral'] = args.preserve_ephemeral
+    # WRS enhancement to allow new userdata during rebuild.
+    # Passing None will leave the existing userdata
+    if 'userdata' in args:
+        kwargs['userdata'] = args.userdata
     kwargs['name'] = args.name
     if 'description' in args:
         kwargs['description'] = args.description
@@ -1843,6 +1914,21 @@ def do_update(cs, args):
     if "description" in args and args.description is not None:
         update_kwargs["description"] = args.description
     _find_server(cs, args.server).update(**update_kwargs)
+
+
+@utils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
+@utils.arg(
+    'resource',
+    metavar='<resource>',
+    help=_('Resource to scale.  (Currently only "cpu".)'))
+@utils.arg(
+    'direction',
+    metavar='<direction>',
+    help=_('Direction to scale ("up" or "down")'))
+def do_scale(cs, args):
+    """Scale a server up or down without taking it offline."""
+    server = _find_server(cs, args.server)
+    server.scale(args.resource, args.direction)
 
 
 @utils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
@@ -2217,6 +2303,11 @@ def _print_server(cs, args, server=None, wrap=0):
 
     info.pop('links', None)
     info.pop('addresses', None)
+
+    # Display an abbreviated list of nics
+    unsorted_nics = getattr(server, 'wrs-if:nics', [])
+    nics = sorted(unsorted_nics, key=lambda nic: nic.keys()[0])
+    info['wrs-if:nics'] = "\n".join([json.dumps(nic) for nic in nics])
 
     utils.print_dict(info, wrap=wrap)
 
@@ -2963,7 +3054,17 @@ def do_usage_list(cs, args):
         # requests and the responses will need to be merged back together.
         usages = collections.OrderedDict()
         usage_list = cs.usage.list(start, end, detailed=True)
-        _merge_usage_list(usages, usage_list)
+        # This is upstream issue brought in by usage paginatiion feature
+        # The logic of original code for assembly of paged usage-list is
+        # problematic. The usages dict has been populated with full list
+        # of usages data.  However, the suequential page with usage info
+        # is continuously added to existing usages which caused
+        # duplication of  usage data except the fist page. Therefore the
+        # fix here is to populate the initial usages dict with the first
+        # page of usage data (usage_list[-1]).
+        if usage_list:
+            usages[usage_list[-1].tenant_id] = usage_list[-1]
+
         marker = _get_usage_list_marker(usage_list)
         while marker:
             next_usage_list = cs.usage.list(
@@ -3631,6 +3732,12 @@ def do_host_list(cs, args):
     default=None,
     dest='maintenance',
     help=_('Either put or resume host to/from maintenance.'))
+@utils.arg(
+    '--availability',
+    metavar='<up|down>',
+    default=None,
+    dest='availability',
+    help=_('Report availability of the host as up or down.'))
 def do_host_update(cs, args):
     """DEPRECATED Update host settings."""
     if args.status == 'enable':
@@ -3766,7 +3873,17 @@ def do_hypervisor_servers(cs, args):
 def do_hypervisor_show(cs, args):
     """Display the details of the specified hypervisor."""
     hyper = _find_hypervisor(cs, args.hypervisor)
-    utils.print_dict(utils.flatten_dict(hyper.to_dict()), wrap=int(args.wrap))
+    hyper_node = {}
+    hyper_dict = hyper._info.copy()
+    for key, value in hyper_dict.items():
+        if key in ('memory_mb_by_node', 'memory_mb_used_by_node',
+                   'vcpus_by_node', 'vcpus_used_by_node'):
+            newkey = key.replace('_by', '')
+            hyper_node[newkey] = value
+            del hyper_dict[key]
+    hyper_dict = utils.flatten_dict(hyper_dict)
+    hyper_dict.update(hyper_node)
+    utils.print_dict(hyper_dict, wrap=int(args.wrap))
 
 
 @utils.arg(
@@ -3973,6 +4090,16 @@ def do_quota_show(cs, args):
 
     _quota_show(cs.quotas.get(project_id, user_id=args.user,
                               detail=args.detail))
+
+
+@utils.arg(
+    '--wrap', dest='wrap', metavar='<integer>', type=int, default=0,
+    help=_('Wrap the output to a specified length, or 0 to disable.'))
+def do_quota_list(cs, args):
+    """List all modified quotas."""
+
+    info = cs.quotas.list()
+    utils.print_dict(info, wrap=int(args.wrap))
 
 
 @utils.arg(
@@ -4468,6 +4595,11 @@ def do_interface_list(cs, args):
     dest="tag",
     help=_('Tag for the attached interface.'),
     start_version="2.49")
+@utils.arg(
+    '--wrs-if:vif_model',
+    metavar='<vif_model>',
+    help=_('Requested VIF model.'),
+    default=None, dest="wrs-if:vif_model")
 def do_interface_attach(cs, args):
     """Attach a network interface to a server."""
     server = _find_server(cs, args.server)
@@ -4475,6 +4607,9 @@ def do_interface_attach(cs, args):
     update_kwargs = {}
     if 'tag' in args and args.tag:
         update_kwargs['tag'] = args.tag
+
+    if 'wrs-if:vif_model' in args:
+        update_kwargs['vif_model'] = getattr(args, 'wrs-if:vif_model')
 
     res = server.interface_attach(args.port_id, args.net_id, args.fixed_ip,
                                   **update_kwargs)
@@ -4562,17 +4697,28 @@ def do_availability_zone_list(cs, _args):
                      sortby_index=None)
 
 
+def _print_server_group_project_id(obj):
+    if hasattr(obj, 'project_id'):
+        data = getattr(obj, 'project_id', '-')
+    else:
+        data = '-'
+    return data
+
+
 @api_versions.wraps("2.0", "2.12")
 def _print_server_group_details(cs, server_group):
-    columns = ['Id', 'Name', 'Policies', 'Members', 'Metadata']
-    utils.print_list(server_group, columns)
+    # WRS:extension -- append 'project_id'
+    formatters = {'Project Id': _print_server_group_project_id}
+    columns = ['Id', 'Project Id', 'Name', 'Policies', 'Members', 'Metadata']
+    utils.print_list(server_group, columns, formatters)
 
 
 @api_versions.wraps("2.13")
 def _print_server_group_details(cs, server_group):    # noqa
     columns = ['Id', 'Name', 'Project Id', 'User Id',
                'Policies', 'Members', 'Metadata']
-    utils.print_list(server_group, columns)
+    formatters = {'Project Id': _print_server_group_project_id}
+    utils.print_list(server_group, columns, formatters)
 
 
 @utils.arg(
@@ -4612,9 +4758,33 @@ def do_server_group_list(cs, args):
     metavar='<policy>',
     nargs='+',
     help=_('Policies for the server groups.'))
+@utils.arg(
+    '--tenant',
+    metavar='<tenant-id>',
+    default=None,
+    help=_('Create server group for specified tenant ID (Admin only).'))
+@utils.arg(
+    '--metadata',
+    default=[],
+    action='append',
+    type=_csv_key_value_type,
+    metavar='key1=value1[,key2=value2...]',
+    help='Metadata to set/unset (only key is necessary on unset)')
 def do_server_group_create(cs, args):
     """Create a new server group with the specified details."""
+    metadata = _extract_metadata(args)
+
+    if args.tenant:
+        project_id = args.tenant
+    elif isinstance(cs.client, client.SessionClient):
+        auth = cs.client.auth
+        project_id = auth.get_auth_ref(cs.client.session).project_id
+    else:
+        project_id = cs.client.tenant_id
+
     server_group = cs.server_groups.create(name=args.name,
+                                           project_id=project_id,
+                                           metadata=metadata,
                                            policies=args.policy)
     _print_server_group_details(cs, [server_group])
 
@@ -4648,6 +4818,27 @@ def do_server_group_delete(cs, args):
 def do_server_group_get(cs, args):
     """Get a specific server group."""
     server_group = cs.server_groups.get(args.id)
+    _print_server_group_details(cs, [server_group])
+
+
+# WRS:extension
+@utils.arg(
+    'id',
+    metavar='<id>',
+    help="Unique ID of the server group to update")
+@utils.arg(
+    'metadata',
+    metavar='<key=value>',
+    nargs='+',
+    action='append',
+    default=[],
+    type=_key_value_type,
+    help=_('Metadata to set/unset (omit value to unset)'))
+def do_server_group_set_metadata(cs, args):
+    """Update the metadata associated with the server group."""
+    metadata = _extract_metadata(args)
+    server_group = cs.server_groups.set_metadata(args.id, metadata)
+    print(_("Server group %s has been successfully updated.") % args.id)
     _print_server_group_details(cs, [server_group])
 
 
@@ -4847,14 +5038,20 @@ def do_host_evacuate(cs, args):
     """Evacuate all instances from failed host."""
 
     hypervisors = cs.hypervisors.search(args.host, servers=True)
-    response = []
-    for hyper in hypervisors:
-        if hasattr(hyper, 'servers'):
-            for server in hyper.servers:
-                response.append(_server_evacuate(cs, server, args))
-
-    utils.print_list(response,
-                     ["Server UUID", "Evacuate Accepted", "Error Message"])
+    if hypervisors:
+        response = []
+        for hyper in hypervisors:
+            if hyper.hypervisor_hostname == args.host:
+                if hasattr(hyper, 'servers'):
+                    for server in hyper.servers:
+                        response.append(_server_evacuate(cs, server, args))
+                break
+        else:
+            msg = (_("No hypervisor matching '%s' could be found.") %
+                   (args.host))
+            raise exceptions.NotFound(404, msg)
+        utils.print_list(response, ["Server UUID",
+                                    "Evacuate Accepted", "Error Message"])
 
 
 def _server_live_migrate(cs, server, args):
@@ -4929,17 +5126,24 @@ def do_host_evacuate_live(cs, args):
     to other available hosts.
     """
     hypervisors = cs.hypervisors.search(args.host, servers=True)
-    response = []
-    migrating = 0
-    for hyper in hypervisors:
-        for server in getattr(hyper, 'servers', []):
-            response.append(_server_live_migrate(cs, server, args))
-            migrating += 1
-            if args.max_servers is not None and migrating >= args.max_servers:
+    if hypervisors:
+        response = []
+        migrating = 0
+        for hyper in hypervisors:
+            if hyper.hypervisor_hostname == args.host:
+                for server in getattr(hyper, 'servers', []):
+                    response.append(_server_live_migrate(cs, server, args))
+                    migrating = migrating + 1
+                    if (args.max_servers is not None and
+                            migrating >= args.max_servers):
+                        break
                 break
-
-    utils.print_list(response, ["Server UUID", "Live Migration Accepted",
-                                "Error Message"])
+        else:
+            msg = (_("No hypervisor matching '%s' could be found.") %
+                   (args.host))
+            raise exceptions.NotFound(404, msg)
+        utils.print_list(response, ["Server UUID", "Live Migration Accepted",
+                                    "Error Message"])
 
 
 class HostServersMigrateResponse(base.Resource):
@@ -4970,14 +5174,20 @@ def do_host_servers_migrate(cs, args):
     """
 
     hypervisors = cs.hypervisors.search(args.host, servers=True)
-    response = []
-    for hyper in hypervisors:
-        if hasattr(hyper, 'servers'):
-            for server in hyper.servers:
-                response.append(_server_migrate(cs, server))
-
-    utils.print_list(response,
-                     ["Server UUID", "Migration Accepted", "Error Message"])
+    if hypervisors:
+        response = []
+        for hyper in hypervisors:
+            if hyper.hypervisor_hostname == args.host:
+                if hasattr(hyper, 'servers'):
+                    for server in hyper.servers:
+                        response.append(_server_migrate(cs, server))
+                break
+        else:
+            msg = (_("No hypervisor matching '%s' could be found.") %
+                    (args.host))
+            raise exceptions.NotFound(404, msg)
+        utils.print_list(response, ["Server UUID",
+                         "Migration Accepted", "Error Message"])
 
 
 @utils.arg(
@@ -5059,14 +5269,22 @@ def do_list_extensions(cs, _args):
 def do_host_meta(cs, args):
     """Set or Delete metadata on all instances of a host."""
     hypervisors = cs.hypervisors.search(args.host, servers=True)
-    for hyper in hypervisors:
-        metadata = _extract_metadata(args)
-        if hasattr(hyper, 'servers'):
-            for server in hyper.servers:
-                if args.action == 'set':
-                    cs.servers.set_meta(server['uuid'], metadata)
-                elif args.action == 'delete':
-                    cs.servers.delete_meta(server['uuid'], metadata.keys())
+    if hypervisors:
+        for hyper in hypervisors:
+            if hyper.hypervisor_hostname == args.host:
+                metadata = _extract_metadata(args)
+                if hasattr(hyper, 'servers'):
+                    for server in hyper.servers:
+                        if args.action == 'set':
+                            cs.servers.set_meta(server['uuid'], metadata)
+                        elif args.action == 'delete':
+                            cs.servers.delete_meta(server['uuid'],
+                                                   metadata.keys())
+                break
+        else:
+            msg = (_("No hypervisor matching '%s' could be found.") %
+                    (args.host))
+            raise exceptions.NotFound(404, msg)
 
 
 def _print_migrations(cs, migrations):
@@ -5113,3 +5331,55 @@ def do_migration_list(cs, args):
     migrations = cs.migrations.list(args.host, args.status, None,
                                     instance_uuid=args.instance_uuid)
     _print_migrations(cs, migrations)
+
+
+@utils.arg(
+    '--device',
+    metavar='<device>',
+    help=_('PCI devices matching a particular device id or alias.'),
+    default=None)
+def do_device_list(cs, args):
+    """Show details of PCI devices in the system."""
+    fields = ['PCI Alias', 'Device Id', 'Vendor Id', 'Class Id',
+              'pci_pfs_configured', 'pci_pfs_used', 'pci_vfs_configured',
+              'pci_vfs_used']
+    devices = cs.wrs_pci.list(device=args.device)
+
+    def get_name(device):
+        return device.device_name
+    formatters = {'PCI Alias': get_name}
+
+    utils.print_list(devices, fields, formatters)
+
+
+@utils.arg(
+    'device',
+    metavar='<device>',
+    help=_('device alias or device id of the PCI device.'))
+@utils.arg(
+    '--host',
+    metavar='<host>',
+    help=_('PCI devices matching a particular host'),
+    default=None)
+def do_device_show(cs, args):
+    """Show details of a given PCI device."""
+    fields = ['PCI Alias', 'Device Id', 'Vendor Id', 'Class Id', 'Host',
+              'pci_pfs_configured', 'pci_pfs_used', 'pci_vfs_configured',
+              'pci_vfs_used']
+
+    def get_name(device):
+        return device.device_name
+    formatters = {'PCI Alias': get_name}
+
+    device = cs.wrs_pci.get(args.device, args.host)
+    utils.print_list(device, fields, formatters, sortby_index=4)
+
+
+@utils.arg(
+    'providernet',
+    metavar='<providernet_id>',
+    help=_('id of the provider network.'))
+def do_providernet_show(cs, args):
+    """Show details of a given provider network."""
+    providernet = cs.wrs_providernets.get(args.providernet)
+    utils.print_dict(providernet._info)

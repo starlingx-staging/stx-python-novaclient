@@ -9,6 +9,9 @@
 # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 # License for the specific language governing permissions and limitations
 # under the License.
+#
+# Copyright (c) 2013-2016 Wind River Systems, Inc.
+#
 
 from novaclient import api_versions
 from novaclient.tests.unit import fakes
@@ -63,6 +66,15 @@ class Base(base.Fixture):
                     "addr": "10.11.12.13",
                 }],
             },
+            "wrs-if:nics": [
+                {
+                    "nic1":
+                        {'vif_model': None,
+                         'port_id': 1,
+                         'network': u'test1',
+                         'mtu': None}
+                }
+            ],
             "metadata": {
                 "Server Label": "Web Head 1",
                 "Image Version": "2.1"
@@ -104,6 +116,16 @@ class Base(base.Fixture):
                     "addr": "10.13.12.13",
                 }],
             },
+            "wrs-if:nics": [
+                {
+                    "nic1": {
+                        'vif_model': None,
+                        'port_id': 1,
+                        'network': u'test1',
+                        'mtu': None
+                    }
+                }
+            ],
             "metadata": {
                 "Server Label": "DB 1"
             },
@@ -146,6 +168,15 @@ class Base(base.Fixture):
                     "addr": "10.13.12.13",
                 }],
             },
+            "wrs-if:nics": [
+                {
+                    "nic1":
+                        {'vif_model': None,
+                         'port_id': 1,
+                         'network': u'test1',
+                         'mtu': None}
+                }
+            ],
             "metadata": {
                 "Server Label": "DB 1"
             }

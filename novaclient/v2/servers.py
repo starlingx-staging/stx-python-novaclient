@@ -14,6 +14,9 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+#
+# Copyright (c) 2013-2016 Wind River Systems, Inc.
+#
 
 """
 Server interface.
@@ -378,6 +381,15 @@ class Server(base.Resource):
                                     preserve_ephemeral=preserve_ephemeral,
                                     **kwargs)
 
+    def scale(self, resource, direction):
+        """
+        Scale the server's resources up or down without taking it offline.
+
+        :param resource: the resource to scale.  (Currently only 'cpu'.)
+        :param direction: the direction to scale.  ('up' or 'down')
+        """
+        self.manager.scale(self, resource, direction)
+
     def resize(self, flavor, **kwargs):
         """
         Resize the server's resources.
@@ -437,7 +449,8 @@ class Server(base.Resource):
         networks = {}
         try:
             for network_label, address_list in self.addresses.items():
-                networks[network_label] = [a['addr'] for a in address_list]
+                networks[network_label] = [a['addr'] or "No subnet" for a in
+                                           address_list]
             return networks
         except Exception:
             return {}
@@ -578,19 +591,21 @@ class Server(base.Resource):
         return self.manager.interface_list(self)
 
     @api_versions.wraps("2.0", "2.48")
-    def interface_attach(self, port_id, net_id, fixed_ip):
+    def interface_attach(self, port_id, net_id, fixed_ip, vif_model=None):
         """
         Attach a network interface to an instance.
         """
-        return self.manager.interface_attach(self, port_id, net_id, fixed_ip)
+        return self.manager.interface_attach(self, port_id, net_id, fixed_ip,
+                                             vif_model)
 
     @api_versions.wraps("2.49")
-    def interface_attach(self, port_id, net_id, fixed_ip, tag=None):
+    def interface_attach(self, port_id, net_id, fixed_ip, tag=None,
+                         vif_model=None):
         """
         Attach a network interface to an instance with an optional tag.
         """
         return self.manager.interface_attach(self, port_id, net_id, fixed_ip,
-                                             tag)
+                                             tag, vif_model)
 
     def interface_detach(self, port_id):
         """
@@ -778,6 +793,11 @@ class ServerManager(base.BootingManagerWithFind):
                         net_data['fixed_ip'] = nic_info['v6-fixed-ip']
                     if nic_info.get('port-id'):
                         net_data['port'] = nic_info['port-id']
+                    if nic_info.get('vif-model'):
+                        net_data['wrs-if:vif_model'] = nic_info['vif-model']
+                    if nic_info.get('vif-pci-address'):
+                        net_data['wrs-if:vif_pci_address'] = \
+                            nic_info['vif-pci-address']
                     if nic_info.get('tag'):
                         net_data['tag'] = nic_info['tag']
                     all_net_data.append(net_data)
@@ -1497,11 +1517,18 @@ class ServerManager(base.BootingManagerWithFind):
                       and each file must be 10k or less.
         :param description: optional description of the server (allowed since
                             microversion 2.19)
+        :param userdata: optional userdata of the server (allowed since
+                            microversion 2.19)
         :returns: :class:`Server`
         """
         descr_microversion = api_versions.APIVersion("2.19")
         if "description" in kwargs and self.api_version < descr_microversion:
             raise exceptions.UnsupportedAttribute("description", "2.19")
+
+        # WRS. Adding userdata to rebuild as part of 2.19
+        userdata_microversion = api_versions.APIVersion("2.19")
+        if "userdata" in kwargs and self.api_version < userdata_microversion:
+            raise exceptions.UnsupportedAttribute("userdata", "2.19")
 
         body = {'imageRef': base.getid(image)}
         if password is not None:
@@ -1514,6 +1541,12 @@ class ServerManager(base.BootingManagerWithFind):
             body['name'] = name
         if "description" in kwargs:
             body["description"] = kwargs["description"]
+        # WRS enhancements for userdata
+        # userdata needs to be base64 encoded
+        ud = kwargs.get("userdata")
+        if ud is not None:
+            userdata_b64 = base64.b64encode(ud).decode('utf-8')
+            body["userdata"] = userdata_b64
         if meta:
             body['metadata'] = meta
         if files:
@@ -1543,6 +1576,17 @@ class ServerManager(base.BootingManagerWithFind):
         :returns: An instance of novaclient.base.TupleWithMeta
         """
         return self._action('migrate', server)
+
+    def scale(self, server, resource, direction):
+        """
+        Scale a server's resource without taking it offline.
+
+        :param server: The :class:`Server` (or its ID) to share onto.
+        :param resource: The resource to scale.  (Currently only 'cpu'.)
+        :param direction: The direction in which to scale. ('up' or 'down'.)
+        """
+        info = {'resource': resource, 'direction': direction}
+        self._action('wrs-res:scale', server, info=info)
 
     def resize(self, server, flavor, disk_config=None, **kwargs):
         """
@@ -1858,7 +1902,8 @@ class ServerManager(base.BootingManagerWithFind):
                           'interfaceAttachments', obj_class=NetworkInterface)
 
     @api_versions.wraps("2.0", "2.48")
-    def interface_attach(self, server, port_id, net_id, fixed_ip):
+    def interface_attach(self, server, port_id, net_id, fixed_ip,
+                         vif_model=None):
         """
         Attach a network_interface to an instance.
 
@@ -1874,12 +1919,15 @@ class ServerManager(base.BootingManagerWithFind):
         if fixed_ip:
             body['interfaceAttachment']['fixed_ips'] = [
                 {'ip_address': fixed_ip}]
+        if vif_model:
+            body['interfaceAttachment']['wrs-if:vif_model'] = vif_model
 
         return self._create('/servers/%s/os-interface' % base.getid(server),
                             body, 'interfaceAttachment')
 
     @api_versions.wraps("2.49")
-    def interface_attach(self, server, port_id, net_id, fixed_ip, tag=None):
+    def interface_attach(self, server, port_id, net_id, fixed_ip, tag=None,
+                         vif_model=None):
         """
         Attach a network_interface to an instance.
 
@@ -1901,6 +1949,8 @@ class ServerManager(base.BootingManagerWithFind):
         if fixed_ip:
             body['interfaceAttachment']['fixed_ips'] = [
                 {'ip_address': fixed_ip}]
+        if vif_model:
+            body['interfaceAttachment']['wrs-if:vif_model'] = vif_model
         if tag:
             body['interfaceAttachment']['tag'] = tag
 

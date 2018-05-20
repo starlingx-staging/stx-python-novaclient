@@ -255,6 +255,5 @@ class FlavorsTest(utils.TestCase):
         fu = f.unset_keys(keys)
         self.assert_request_id(fu, fakes.FAKE_REQUEST_ID_LIST)
         mock_delete.assert_has_calls([
-            mock.call("/flavors/1/os-extra_specs/k1"),
-            mock.call("/flavors/1/os-extra_specs/k2")
+            mock.call("/flavors/1/os-extra_specs/k1;k2"),
         ])

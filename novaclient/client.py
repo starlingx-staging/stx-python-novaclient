@@ -62,6 +62,8 @@ class SessionClient(adapter.LegacyJsonAdapter):
         kwargs.setdefault('headers', kwargs.get('headers', {}))
         api_versions.update_headers(kwargs["headers"], self.api_version)
 
+        kwargs['headers']['wrs-header'] = 'true'
+
         # NOTE(dbelova): osprofiler_web.get_trace_id_headers does not add any
         # headers in case if osprofiler is not initialized.
         if osprofiler_web:

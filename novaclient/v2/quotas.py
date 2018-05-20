@@ -47,6 +47,14 @@ class QuotaSetManager(base.Manager):
 
         return self._get(url % params, "quota_set")
 
+    def list(self):
+        """Get a list of all quota information.
+
+        :returns: all the quota information in a dict
+        """
+        resp, body = self.api.client.get("/os-quota-sets")
+        return body
+
     def update(self, tenant_id, **kwargs):
 
         user_id = kwargs.pop('user_id', None)

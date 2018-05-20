@@ -101,8 +101,11 @@ class ResourceInErrorState(Exception):
         msg = "`%s` resource is in the error state" % obj.__class__.__name__
         fault_msg = getattr(obj, "fault", {}).get("message")
         if fault_msg:
-            msg += "due to '%s'" % fault_msg
+            msg += " due to '%s'" % fault_msg
         self.message = "%s." % msg
+
+    def __str__(self):
+        return self.message
 
 
 class VersionNotFoundForAPIMethod(Exception):

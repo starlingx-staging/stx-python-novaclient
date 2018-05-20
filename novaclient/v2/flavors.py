@@ -64,17 +64,24 @@ class Flavor(base.Resource):
             "/flavors/%s/os-extra_specs" % base.getid(self), body,
             "extra_specs", return_raw=True)
 
-    def unset_keys(self, keys):
+    def unset_keys(self, keys, aggregate=True):
         """Unset extra specs on a flavor.
 
         :param keys: A list of keys to be unset
         :returns: An instance of novaclient.base.TupleWithMeta
         """
         result = base.TupleWithMeta((), None)
-        for k in keys:
-            ret = self.manager._delete(
-                "/flavors/%s/os-extra_specs/%s" % (base.getid(self), k))
+        if aggregate:
+            agg_key = ";".join(keys)
+            ret = self.manager._delete("/flavors/%s/os-extra_specs/%s"
+                                       % (base.getid(self), agg_key))
             result.append_request_ids(ret.request_ids)
+
+        else:
+            for k in keys:
+                ret = self.manager._delete(
+                    "/flavors/%s/os-extra_specs/%s" % (base.getid(self), k))
+                result.append_request_ids(ret.request_ids)
 
         return result
 

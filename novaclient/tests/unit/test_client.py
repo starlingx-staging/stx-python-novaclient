@@ -27,6 +27,7 @@ import novaclient.v2.client
 
 
 class ClientTest(utils.TestCase):
+
     def test_get_client_class_v2(self):
         output = novaclient.client.get_client_class('2')
         self.assertEqual(output, novaclient.v2.client.Client)

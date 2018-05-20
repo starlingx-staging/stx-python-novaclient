@@ -57,6 +57,8 @@ class ServerGroupsTest(utils.FixturedTestCase):
 
     def test_create_server_group(self):
         kwargs = {'name': 'ig1',
+                  'project_id': 'myproject',
+                  'metadata': ['wrs-sg:best_effort=false'],
                   'policies': ['anti-affinity']}
         server_group = self.cs.server_groups.create(**kwargs)
         self.assert_request_id(server_group, fakes.FAKE_REQUEST_ID_LIST)

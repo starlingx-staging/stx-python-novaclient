@@ -12,6 +12,9 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+#
+#  Copyright (c) 2013-2016 Wind River Systems, Inc.
+#
 
 """
 Server group interface.
@@ -84,15 +87,33 @@ class ServerGroupsManager(base.ManagerWithFind):
         """
         return self._delete('/os-server-groups/%s' % id)
 
-    def create(self, name, policies):
+    def create(self, name, project_id, metadata, policies):
         """Create (allocate) a server group.
 
         :param name: The name of the server group.
+        :param project_id: The project id of the server group.
+        :param metadata: The metadata for the server group.
         :param policies: Policy name or a list of exactly one policy name to
             associate with the server group.
         :rtype: list of :class:`ServerGroup`
         """
         policies = policies if isinstance(policies, list) else [policies]
         body = {'server_group': {'name': name,
+                                 'project_id': project_id,
+                                 'metadata': metadata,
                                  'policies': policies}}
         return self._create('/os-server-groups', body, 'server_group')
+
+    # WRS:extension
+    def _action(self, action, id, response_key, info=None, **kwargs):
+        body = {action: info}
+        self.run_hooks('modify_body_for_action', body, **kwargs)
+        url = '/os-server-groups/%s/action' % id
+        _resp, body = self.api.client.post(url, body=body)
+        return self.resource_class(self, body[response_key])
+
+    # WRS:extension
+    def set_metadata(self, id, metadata):
+        action = 'set_metadata'
+        info = {'metadata': metadata}
+        return self._action(action, id, 'server_group', info)

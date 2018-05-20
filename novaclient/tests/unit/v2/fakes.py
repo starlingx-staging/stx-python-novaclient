@@ -13,6 +13,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Copyright (c) 2013-2017 Wind River Systems, Inc.
+#
 
 import datetime
 import re
@@ -424,6 +427,16 @@ class FakeSessionClient(base_client.SessionClient):
                         "addr": "10.11.12.13",
                     }],
                 },
+                "wrs-if:nics": [
+                    {
+                        "nic1": {
+                            'vif_model': None,
+                            'port_id': 1,
+                            'network': u'test1',
+                            'mtu': None
+                        }
+                    }
+                ],
                 "metadata": {
                     "Server Label": "Web Head 1",
                     "Image Version": "2.1"
@@ -493,18 +506,31 @@ class FakeSessionClient(base_client.SessionClient):
                 "addresses": {
                     "public": [
                         {
+                            "index": 1,
                             "version": 4,
                             "addr": "4.5.6.7",
                         },
                         {
+                            "index": 1,
                             "version": 4,
                             "addr": "5.6.9.8",
                         }],
                     "private": [{
+                        "index": 2,
                         "version": 4,
                         "addr": "10.13.12.13",
                     }],
                 },
+                "wrs-if:nics": [
+                    {
+                        "nic1": {
+                            'vif_model': None,
+                            'port_id': 1,
+                            'network': u'test1',
+                            'mtu': None
+                        }
+                    }
+                ],
                 "metadata": {
                     "Server Label": "DB 1"
                 }
@@ -630,6 +656,12 @@ class FakeSessionClient(base_client.SessionClient):
     def post_servers_uuid4_metadata(self, **kw):
         return (204, {}, {'metadata': {'key1': 'val1'}})
 
+    def post_servers_uuid5_metadata(self, **kw):
+        return (204, {}, {'metadata': {'key1': 'val1'}})
+
+    def post_servers_uuid6_metadata(self, **kw):
+        return (204, {}, {'metadata': {'key1': 'val1'}})
+
     def delete_servers_uuid1_metadata_key1(self, **kw):
         return (200, {}, {'data': 'Fake diagnostics'})
 
@@ -640,6 +672,12 @@ class FakeSessionClient(base_client.SessionClient):
         return (200, {}, {'data': 'Fake diagnostics'})
 
     def delete_servers_uuid4_metadata_key1(self, **kw):
+        return (200, {}, {'data': 'Fake diagnostics'})
+
+    def delete_servers_uuid5_metadata_key1(self, **kw):
+        return (200, {}, {'data': 'Fake diagnostics'})
+
+    def delete_servers_uuid6_metadata_key1(self, **kw):
         return (200, {}, {'data': 'Fake diagnostics'})
 
     def get_servers_1234_os_security_groups(self, **kw):
@@ -1775,6 +1813,26 @@ class FakeSessionClient(base_client.SessionClient):
                      {'name': 'inst4', 'uuid': 'uuid4'}]}]
         })
 
+    def get_os_hypervisors_hyper1_servers(self, **kw):
+        return (200, {}, {
+            'hypervisors': [
+                {'id': 1234,
+                 'hypervisor_hostname': 'hyper1',
+                 'servers': [
+                     {'name': 'inst1', 'uuid': 'uuid1'},
+                     {'name': 'inst2', 'uuid': 'uuid2'}]}]
+        })
+
+    def get_os_hypervisors_hyper2_servers(self, **kw):
+        return (200, {}, {
+            'hypervisors': [
+                {'id': 5678,
+                 'hypervisor_hostname': 'hyper2',
+                 'servers': [
+                     {'name': 'inst3', 'uuid': 'uuid3'},
+                     {'name': 'inst4', 'uuid': 'uuid4'}]}]
+        })
+
     def get_os_hypervisors_hyper_no_servers_servers(self, **kw):
         return (200, {}, {'hypervisors':
                           [{'id': 1234, 'hypervisor_hostname': 'hyper1'}]})
@@ -1981,6 +2039,12 @@ class FakeSessionClient(base_client.SessionClient):
         return 202, {}, {}
 
     def post_servers_uuid4_action(self, **kw):
+        return 202, {}, {}
+
+    def post_servers_uuid5_action(self, **kw):
+        return 202, {}, {}
+
+    def post_servers_uuid6_action(self, **kw):
         return 202, {}, {}
 
     def get_os_cells_child_cell(self, **kw):

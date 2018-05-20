@@ -48,6 +48,8 @@ from novaclient.v2 import usage
 from novaclient.v2 import versions
 from novaclient.v2 import virtual_interfaces
 from novaclient.v2 import volumes
+from novaclient.v2 import wrs_pci
+from novaclient.v2 import wrs_providernets
 
 
 class Client(object):
@@ -182,6 +184,8 @@ class Client(object):
         self.migrations = migrations.MigrationManager(self)
         self.server_external_events = \
             server_external_events.ServerExternalEventManager(self)
+        self.wrs_pci = wrs_pci.PciDevicesManager(self)
+        self.wrs_providernets = wrs_providernets.ProviderNetsManager(self)
 
         self.logger = logger or logging.getLogger(__name__)
 

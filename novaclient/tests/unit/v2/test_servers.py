@@ -17,6 +17,7 @@ import os
 import tempfile
 
 import mock
+from oslo_serialization import jsonutils
 import six
 
 from novaclient import api_versions
@@ -1002,7 +1003,7 @@ class ServersTest(utils.FixturedTestCase):
 
     def test_interface_attach(self):
         s = self.cs.servers.get(1234)
-        ret = s.interface_attach(None, None, None)
+        ret = s.interface_attach(None, None, None, None)
         self.assert_request_id(ret, fakes.FAKE_REQUEST_ID_LIST)
         self.assert_called('POST', '/servers/1234/os-interface')
 
@@ -1173,6 +1174,15 @@ class ServersV217Test(ServersV214Test):
         self.cs.servers.trigger_crash_dump(s)
         self.assert_called('POST', '/servers/1234/action')
 
+    # Rebuild using userdata should fail in 2.17
+    def test_rebuild_server_change_userdata(self):
+        s = self.cs.servers.get(1234)
+        self.assertRaises(exceptions.UnsupportedAttribute,
+                          s.rebuild,
+                          image=1,
+                          userdata="foo"
+                          )
+
 
 class ServersV219Test(ServersV217Test):
 
@@ -1205,10 +1215,36 @@ class ServersV219Test(ServersV217Test):
         self.assert_request_id(ret, fakes.FAKE_REQUEST_ID_LIST)
         self.assert_called('POST', '/servers/1234/action')
 
+    # Rebuild using userdata is added by WRS in 2.19
+    def test_rebuild_server_change_userdata(self):
+        new_userdata = "foo"
+        encoded_userdata = base64.b64encode(new_userdata).decode('utf-8')
+        s = self.cs.servers.get(1234)
+        ret = s.rebuild(image=1, userdata=new_userdata)
+        self.assert_request_id(ret, fakes.FAKE_REQUEST_ID_LIST)
+        self.assert_called('POST', '/servers/1234/action')
+        body = jsonutils.loads(self.requests_mock.last_request.body)
+        d = body['rebuild']
+        self.assertIn('userdata', d)
+        self.assertEqual(encoded_userdata, d['userdata'])
+
 
 class ServersV225Test(ServersV219Test):
 
     api_version = "2.25"
+
+    # Ensure the 2.19 userdata enhancement still works in 2.25
+    def test_rebuild_server_change_userdata(self):
+        new_userdata = "foo"
+        encoded_userdata = base64.b64encode(new_userdata).decode('utf-8')
+        s = self.cs.servers.get(1234)
+        ret = s.rebuild(image=1, userdata=new_userdata)
+        self.assert_request_id(ret, fakes.FAKE_REQUEST_ID_LIST)
+        self.assert_called('POST', '/servers/1234/action')
+        body = jsonutils.loads(self.requests_mock.last_request.body)
+        d = body['rebuild']
+        self.assertIn('userdata', d)
+        self.assertEqual(encoded_userdata, d['userdata'])
 
     def test_live_migrate_server(self):
         s = self.cs.servers.get(1234)
@@ -1466,7 +1502,7 @@ class ServersV249Test(ServersV2_37Test):
     def test_interface_attach_with_tag(self):
         s = self.cs.servers.get(1234)
         ret = s.interface_attach('7f42712e-63fe-484c-a6df-30ae4867ff66',
-                                 None, None, 'test_tag')
+                                 None, None, 'test_tag', None)
         self.assert_request_id(ret, fakes.FAKE_REQUEST_ID_LIST)
         self.assert_called(
             'POST', '/servers/1234/os-interface',
