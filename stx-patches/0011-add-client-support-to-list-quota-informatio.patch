@@ -1,0 +1,59 @@
+From 86a0fc2cc4e7baa28de44a45c0611601314f632c Mon Sep 17 00:00:00 2001
+From: Chris Friesen <chris.friesen@windriver.com>
+Date: Fri, 22 Dec 2017 13:57:39 -0600
+Subject: [PATCH 11/20] add client support to list quota information efficiently
+
+Add the ability to list all non-default quotas.  This will
+return a dict which contains information on all the project quotas
+that have been set, as well as all the project/user quotas that
+have been set.
+
+Change-Id: I02d6eace7a30ff2d5c805930ef692b782d82a3ab
+---
+ novaclient/v2/quotas.py |  8 ++++++++
+ novaclient/v2/shell.py  | 10 ++++++++++
+ 2 files changed, 18 insertions(+)
+
+diff --git a/novaclient/v2/quotas.py b/novaclient/v2/quotas.py
+index 1aee5b1..ecbd204 100644
+--- a/novaclient/v2/quotas.py
++++ b/novaclient/v2/quotas.py
+@@ -47,6 +47,14 @@ class QuotaSetManager(base.Manager):
+ 
+         return self._get(url % params, "quota_set")
+ 
++    def list(self):
++        """Get a list of all quota information.
++
++        :returns: all the quota information in a dict
++        """
++        resp, body = self.api.client.get("/os-quota-sets")
++        return body
++
+     def update(self, tenant_id, **kwargs):
+ 
+         user_id = kwargs.pop('user_id', None)
+diff --git a/novaclient/v2/shell.py b/novaclient/v2/shell.py
+index 7daafcd..ef1c292 100644
+--- a/novaclient/v2/shell.py
++++ b/novaclient/v2/shell.py
+@@ -4087,6 +4087,16 @@ def do_quota_show(cs, args):
+ 
+ 
+ @utils.arg(
++    '--wrap', dest='wrap', metavar='<integer>', type=int, default=0,
++    help=_('Wrap the output to a specified length, or 0 to disable.'))
++def do_quota_list(cs, args):
++    """List all modified quotas."""
++
++    info = cs.quotas.list()
++    utils.print_dict(info, wrap=int(args.wrap))
++
++
++@utils.arg(
+     '--tenant',
+     metavar='<tenant-id>',
+     default=None,
+-- 
+2.7.4
+

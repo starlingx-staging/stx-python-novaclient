@@ -1,0 +1,73 @@
+From 4343fd5a9ada3473d98887934538bc477367ef16 Mon Sep 17 00:00:00 2001
+From: Angie Wang <Angie.Wang@windriver.com>
+Date: Mon, 12 Feb 2018 15:51:07 -0500
+Subject: [PATCH 14/20] add the ability for admin to create server
+ group for other tenants from nova CLI
+
+---
+ novaclient/v2/server_groups.py |  4 +++-
+ novaclient/v2/shell.py         | 15 +++++++++++++++
+ 2 files changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/novaclient/v2/server_groups.py b/novaclient/v2/server_groups.py
+index d2a934e..91cd86f 100644
+--- a/novaclient/v2/server_groups.py
++++ b/novaclient/v2/server_groups.py
+@@ -91,10 +91,11 @@ class ServerGroupsManager(base.ManagerWithFind):
+         """
+         return self._delete('/os-server-groups/%s' % id)
+ 
+-    def create(self, name, metadata, policies):
++    def create(self, name, project_id, metadata, policies):
+         """Create (allocate) a server group.
+ 
+         :param name: The name of the server group.
++        :param project_id: The project id of the server group.
+         :param metadata: The metadata for the server group.
+         :param policies: Policy name or a list of exactly one policy name to
+             associate with the server group.
+@@ -102,6 +103,7 @@ class ServerGroupsManager(base.ManagerWithFind):
+         """
+         policies = policies if isinstance(policies, list) else [policies]
+         body = {'server_group': {'name': name,
++                                 'project_id': project_id,
+                                  'metadata': metadata,
+                                  'policies': policies}}
+         return self._create('/os-server-groups', body, 'server_group')
+diff --git a/novaclient/v2/shell.py b/novaclient/v2/shell.py
+index ef1c292..4fcaa2f 100644
+--- a/novaclient/v2/shell.py
++++ b/novaclient/v2/shell.py
+@@ -4753,6 +4753,11 @@ def do_server_group_list(cs, args):
+     nargs='+',
+     help=_('Policies for the server groups.'))
+ @utils.arg(
++    '--tenant',
++    metavar='<tenant-id>',
++    default=None,
++    help=_('Create server group for specified tenant ID (Admin only).'))
++@utils.arg(
+     '--metadata',
+     default=[],
+     action='append',
+@@ -4762,7 +4767,17 @@ def do_server_group_list(cs, args):
+ def do_server_group_create(cs, args):
+     """Create a new server group with the specified details."""
+     metadata = _extract_metadata(args)
++
++    if args.tenant:
++        project_id = args.tenant
++    elif isinstance(cs.client, client.SessionClient):
++        auth = cs.client.auth
++        project_id = auth.get_auth_ref(cs.client.session).project_id
++    else:
++        project_id = cs.client.tenant_id
++
+     server_group = cs.server_groups.create(name=args.name,
++                                           project_id=project_id,
+                                            metadata=metadata,
+                                            policies=args.policy)
+     _print_server_group_details(cs, [server_group])
+-- 
+2.7.4
+

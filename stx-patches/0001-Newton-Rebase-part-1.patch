@@ -1,0 +1,1003 @@
+From 2a779db38145e2a92254227e25888fba373214c5 Mon Sep 17 00:00:00 2001
+From: Giao Le <giao.le@windriver.com>
+Date: Mon, 6 Feb 2017 14:36:10 -0500
+Subject: [PATCH 01/20] Newton Rebase part 1
+
+  WRS additions and bug fixes for non-PCI/SRIOV features.
+
+__TYPE_single
+__TAG_shell,servers,server_groups,flavors
+__R4_commit_e368248
+---
+ novaclient/tests/unit/fixture_data/servers.py  |  35 +++++
+ novaclient/tests/unit/test_client.py           |   1 +
+ novaclient/tests/unit/v2/fakes.py              |  30 ++++
+ novaclient/tests/unit/v2/test_flavors.py       |   3 +-
+ novaclient/tests/unit/v2/test_server_groups.py |   1 +
+ novaclient/tests/unit/v2/test_servers.py       |  40 ++++-
+ novaclient/tests/unit/v2/test_shell.py         |  22 ++-
+ novaclient/utils.py                            |  23 +++
+ novaclient/v2/flavors.py                       |  15 +-
+ novaclient/v2/server_groups.py                 |  25 ++-
+ novaclient/v2/servers.py                       |  64 +++++++-
+ novaclient/v2/shell.py                         | 208 +++++++++++++++++++++----
+ 12 files changed, 414 insertions(+), 53 deletions(-)
+
+diff --git a/novaclient/tests/unit/fixture_data/servers.py b/novaclient/tests/unit/fixture_data/servers.py
+index 7232fb5..0bfdc43 100644
+--- a/novaclient/tests/unit/fixture_data/servers.py
++++ b/novaclient/tests/unit/fixture_data/servers.py
+@@ -9,6 +9,13 @@
+ # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ # License for the specific language governing permissions and limitations
+ # under the License.
++#
++# Copyright (c) 2013-2016 Wind River Systems, Inc.
++#
++#
++#
++#
++#
+ 
+ from novaclient import api_versions
+ from novaclient.tests.unit import fakes
+@@ -63,6 +70,15 @@ class Base(base.Fixture):
+                     "addr": "10.11.12.13",
+                 }],
+             },
++            "wrs-if:nics": [
++                {
++                    "nic1":
++                        {'vif_model': None,
++                         'port_id': 1,
++                         'network': u'test1',
++                         'mtu': None}
++                }
++            ],
+             "metadata": {
+                 "Server Label": "Web Head 1",
+                 "Image Version": "2.1"
+@@ -104,6 +120,16 @@ class Base(base.Fixture):
+                     "addr": "10.13.12.13",
+                 }],
+             },
++            "wrs-if:nics": [
++                {
++                    "nic1": {
++                        'vif_model': None,
++                        'port_id': 1,
++                        'network': u'test1',
++                        'mtu': None
++                    }
++                }
++            ],
+             "metadata": {
+                 "Server Label": "DB 1"
+             },
+@@ -146,6 +172,15 @@ class Base(base.Fixture):
+                     "addr": "10.13.12.13",
+                 }],
+             },
++            "wrs-if:nics": [
++                {
++                    "nic1":
++                        {'vif_model': None,
++                         'port_id': 1,
++                         'network': u'test1',
++                         'mtu': None}
++                }
++            ],
+             "metadata": {
+                 "Server Label": "DB 1"
+             }
+diff --git a/novaclient/tests/unit/test_client.py b/novaclient/tests/unit/test_client.py
+index f5f6776..5761af6 100644
+--- a/novaclient/tests/unit/test_client.py
++++ b/novaclient/tests/unit/test_client.py
+@@ -27,6 +27,7 @@ import novaclient.v2.client
+ 
+ 
+ class ClientTest(utils.TestCase):
++
+     def test_get_client_class_v2(self):
+         output = novaclient.client.get_client_class('2')
+         self.assertEqual(output, novaclient.v2.client.Client)
+diff --git a/novaclient/tests/unit/v2/fakes.py b/novaclient/tests/unit/v2/fakes.py
+index 4138e8a..e317b03 100644
+--- a/novaclient/tests/unit/v2/fakes.py
++++ b/novaclient/tests/unit/v2/fakes.py
+@@ -13,6 +13,13 @@
+ # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
++#
++# Copyright (c) 2013-2017 Wind River Systems, Inc.
++#
++#
++#
++#
++#
+ 
+ import datetime
+ import re
+@@ -424,6 +431,16 @@ class FakeSessionClient(base_client.SessionClient):
+                         "addr": "10.11.12.13",
+                     }],
+                 },
++                "wrs-if:nics": [
++                    {
++                        "nic1": {
++                            'vif_model': None,
++                            'port_id': 1,
++                            'network': u'test1',
++                            'mtu': None
++                        }
++                    }
++                ],
+                 "metadata": {
+                     "Server Label": "Web Head 1",
+                     "Image Version": "2.1"
+@@ -493,18 +510,31 @@ class FakeSessionClient(base_client.SessionClient):
+                 "addresses": {
+                     "public": [
+                         {
++                            "index": 1,
+                             "version": 4,
+                             "addr": "4.5.6.7",
+                         },
+                         {
++                            "index": 1,
+                             "version": 4,
+                             "addr": "5.6.9.8",
+                         }],
+                     "private": [{
++                        "index": 2,
+                         "version": 4,
+                         "addr": "10.13.12.13",
+                     }],
+                 },
++                "wrs-if:nics": [
++                    {
++                        "nic1": {
++                            'vif_model': None,
++                            'port_id': 1,
++                            'network': u'test1',
++                            'mtu': None
++                        }
++                    }
++                ],
+                 "metadata": {
+                     "Server Label": "DB 1"
+                 }
+diff --git a/novaclient/tests/unit/v2/test_flavors.py b/novaclient/tests/unit/v2/test_flavors.py
+index c882ddb..36fd83c 100644
+--- a/novaclient/tests/unit/v2/test_flavors.py
++++ b/novaclient/tests/unit/v2/test_flavors.py
+@@ -255,6 +255,5 @@ class FlavorsTest(utils.TestCase):
+         fu = f.unset_keys(keys)
+         self.assert_request_id(fu, fakes.FAKE_REQUEST_ID_LIST)
+         mock_delete.assert_has_calls([
+-            mock.call("/flavors/1/os-extra_specs/k1"),
+-            mock.call("/flavors/1/os-extra_specs/k2")
++            mock.call("/flavors/1/os-extra_specs/k1;k2"),
+         ])
+diff --git a/novaclient/tests/unit/v2/test_server_groups.py b/novaclient/tests/unit/v2/test_server_groups.py
+index 9881b20..508a14c 100644
+--- a/novaclient/tests/unit/v2/test_server_groups.py
++++ b/novaclient/tests/unit/v2/test_server_groups.py
+@@ -57,6 +57,7 @@ class ServerGroupsTest(utils.FixturedTestCase):
+ 
+     def test_create_server_group(self):
+         kwargs = {'name': 'ig1',
++                  'metadata': ['wrs-sg:best_effort=false'],
+                   'policies': ['anti-affinity']}
+         server_group = self.cs.server_groups.create(**kwargs)
+         self.assert_request_id(server_group, fakes.FAKE_REQUEST_ID_LIST)
+diff --git a/novaclient/tests/unit/v2/test_servers.py b/novaclient/tests/unit/v2/test_servers.py
+index b807a7d..20773c0 100644
+--- a/novaclient/tests/unit/v2/test_servers.py
++++ b/novaclient/tests/unit/v2/test_servers.py
+@@ -17,6 +17,7 @@ import os
+ import tempfile
+ 
+ import mock
++from oslo_serialization import jsonutils
+ import six
+ 
+ from novaclient import api_versions
+@@ -1002,7 +1003,7 @@ class ServersTest(utils.FixturedTestCase):
+ 
+     def test_interface_attach(self):
+         s = self.cs.servers.get(1234)
+-        ret = s.interface_attach(None, None, None)
++        ret = s.interface_attach(None, None, None, None)
+         self.assert_request_id(ret, fakes.FAKE_REQUEST_ID_LIST)
+         self.assert_called('POST', '/servers/1234/os-interface')
+ 
+@@ -1173,6 +1174,15 @@ class ServersV217Test(ServersV214Test):
+         self.cs.servers.trigger_crash_dump(s)
+         self.assert_called('POST', '/servers/1234/action')
+ 
++    # Rebuild using userdata should fail in 2.17
++    def test_rebuild_server_change_userdata(self):
++        s = self.cs.servers.get(1234)
++        self.assertRaises(exceptions.UnsupportedAttribute,
++                          s.rebuild,
++                          image=1,
++                          userdata="foo"
++                          )
++
+ 
+ class ServersV219Test(ServersV217Test):
+ 
+@@ -1205,11 +1215,37 @@ class ServersV219Test(ServersV217Test):
+         self.assert_request_id(ret, fakes.FAKE_REQUEST_ID_LIST)
+         self.assert_called('POST', '/servers/1234/action')
+ 
++    # Rebuild using userdata is added by WRS in 2.19
++    def test_rebuild_server_change_userdata(self):
++        new_userdata = "foo"
++        encoded_userdata = base64.b64encode(new_userdata).decode('utf-8')
++        s = self.cs.servers.get(1234)
++        ret = s.rebuild(image=1, userdata=new_userdata)
++        self.assert_request_id(ret, fakes.FAKE_REQUEST_ID_LIST)
++        self.assert_called('POST', '/servers/1234/action')
++        body = jsonutils.loads(self.requests_mock.last_request.body)
++        d = body['rebuild']
++        self.assertIn('userdata', d)
++        self.assertEqual(encoded_userdata, d['userdata'])
++
+ 
+ class ServersV225Test(ServersV219Test):
+ 
+     api_version = "2.25"
+ 
++    # Ensure the 2.19 userdata enhancement still works in 2.25
++    def test_rebuild_server_change_userdata(self):
++        new_userdata = "foo"
++        encoded_userdata = base64.b64encode(new_userdata).decode('utf-8')
++        s = self.cs.servers.get(1234)
++        ret = s.rebuild(image=1, userdata=new_userdata)
++        self.assert_request_id(ret, fakes.FAKE_REQUEST_ID_LIST)
++        self.assert_called('POST', '/servers/1234/action')
++        body = jsonutils.loads(self.requests_mock.last_request.body)
++        d = body['rebuild']
++        self.assertIn('userdata', d)
++        self.assertEqual(encoded_userdata, d['userdata'])
++
+     def test_live_migrate_server(self):
+         s = self.cs.servers.get(1234)
+         ret = s.live_migrate(host='hostname', block_migration='auto')
+@@ -1466,7 +1502,7 @@ class ServersV249Test(ServersV2_37Test):
+     def test_interface_attach_with_tag(self):
+         s = self.cs.servers.get(1234)
+         ret = s.interface_attach('7f42712e-63fe-484c-a6df-30ae4867ff66',
+-                                 None, None, 'test_tag')
++                                 None, None, 'test_tag', None)
+         self.assert_request_id(ret, fakes.FAKE_REQUEST_ID_LIST)
+         self.assert_called(
+             'POST', '/servers/1234/os-interface',
+diff --git a/novaclient/tests/unit/v2/test_shell.py b/novaclient/tests/unit/v2/test_shell.py
+index 7b33d90..25f0da4 100644
+--- a/novaclient/tests/unit/v2/test_shell.py
++++ b/novaclient/tests/unit/v2/test_shell.py
+@@ -15,6 +15,13 @@
+ #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ #    License for the specific language governing permissions and limitations
+ #    under the License.
++#
++#  Copyright (c) 2013-2016 Wind River Systems, Inc.
++#
++#
++#
++#
++#
+ 
+ import argparse
+ import base64
+@@ -3056,11 +3063,18 @@ class ShellTest(utils.TestCase):
+         self.run_command('keypair-delete test')
+         self.assert_called('DELETE', '/os-keypairs/test')
+ 
++    # WRS:extension -- metadata
+     def test_create_server_group(self):
+-        self.run_command('server-group-create wjsg affinity')
+-        self.assert_called('POST', '/os-server-groups',
+-                           {'server_group': {'name': 'wjsg',
+-                                             'policies': ['affinity']}})
++        self.run_command('server-group-create wjsg affinity '
++                         '--metadata best_effort=1,group_size=2')
++        self.assert_called_anytime('POST', '/os-server-groups',
++                                   {'server_group': {
++                                       'name': 'wjsg',
++                                       'metadata': {
++                                           'best_effort': '1',
++                                           'group_size': '2'
++                                       },
++                                       'policies': ['affinity']}})
+ 
+     def test_delete_multi_server_groups(self):
+         self.run_command('server-group-delete 12345 56789')
+diff --git a/novaclient/utils.py b/novaclient/utils.py
+index e93df69..561a48e 100644
+--- a/novaclient/utils.py
++++ b/novaclient/utils.py
+@@ -344,6 +344,29 @@ def format_servers_list_networks(server):
+     return '; '.join(output)
+ 
+ 
++def _format_servers_list_addresses(server):
++    output = []
++    unsorted_nics = getattr(server, 'wrs-if:nics', [])
++    # Each entry in the nics list is a single key dictionary where the key is
++    # the name of the nic (e.g., nic0) and the value is a dictionary of the nic
++    # attributes.  For example,
++    #         nics = [{'nic0': {'network': 'net1', 'vif-model': 'virtio'...}},
++    #                 {'nic1': {'network': 'net2', 'vif-model': 'avp'...}}]
++    #
++    for entry in sorted(unsorted_nics, key=lambda nic: nic.keys()[0]):
++        nic = entry.values()[0]
++        addresses = []
++        for address in server.addresses.get(nic['network'], []):
++            if address['addr'] is None:
++                continue
++            if address['OS-EXT-IPS-MAC:mac_addr'] == nic['mac_address']:
++                addresses.append(address['addr'])
++        addresses_csv = ', '.join([a for a in addresses] or ["No Address"])
++        group = "%s=%s" % (nic['network'], addresses_csv)
++        output.append(group)
++    return '; '.join(output)
++
++
+ def format_security_groups(groups):
+     return ', '.join(group['name'] for group in groups)
+ 
+diff --git a/novaclient/v2/flavors.py b/novaclient/v2/flavors.py
+index a0a7b6f..8d7c9fc 100644
+--- a/novaclient/v2/flavors.py
++++ b/novaclient/v2/flavors.py
+@@ -64,18 +64,25 @@ class Flavor(base.Resource):
+             "/flavors/%s/os-extra_specs" % base.getid(self), body,
+             "extra_specs", return_raw=True)
+ 
+-    def unset_keys(self, keys):
++    def unset_keys(self, keys, aggregate=True):
+         """Unset extra specs on a flavor.
+ 
+         :param keys: A list of keys to be unset
+         :returns: An instance of novaclient.base.TupleWithMeta
+         """
+         result = base.TupleWithMeta((), None)
+-        for k in keys:
+-            ret = self.manager._delete(
+-                "/flavors/%s/os-extra_specs/%s" % (base.getid(self), k))
++        if aggregate:
++            agg_key = ";".join(keys)
++            ret = self.manager._delete("/flavors/%s/os-extra_specs/%s"
++                                       % (base.getid(self), agg_key))
+             result.append_request_ids(ret.request_ids)
+ 
++        else:
++            for k in keys:
++                ret = self.manager._delete(
++                    "/flavors/%s/os-extra_specs/%s" % (base.getid(self), k))
++                result.append_request_ids(ret.request_ids)
++
+         return result
+ 
+     def delete(self):
+diff --git a/novaclient/v2/server_groups.py b/novaclient/v2/server_groups.py
+index 7a01ba0..d2a934e 100644
+--- a/novaclient/v2/server_groups.py
++++ b/novaclient/v2/server_groups.py
+@@ -12,6 +12,13 @@
+ #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ #    License for the specific language governing permissions and limitations
+ #    under the License.
++#
++#  Copyright (c) 2013-2016 Wind River Systems, Inc.
++#
++#
++#
++#
++#
+ 
+ """
+ Server group interface.
+@@ -84,15 +91,31 @@ class ServerGroupsManager(base.ManagerWithFind):
+         """
+         return self._delete('/os-server-groups/%s' % id)
+ 
+-    def create(self, name, policies):
++    def create(self, name, metadata, policies):
+         """Create (allocate) a server group.
+ 
+         :param name: The name of the server group.
++        :param metadata: The metadata for the server group.
+         :param policies: Policy name or a list of exactly one policy name to
+             associate with the server group.
+         :rtype: list of :class:`ServerGroup`
+         """
+         policies = policies if isinstance(policies, list) else [policies]
+         body = {'server_group': {'name': name,
++                                 'metadata': metadata,
+                                  'policies': policies}}
+         return self._create('/os-server-groups', body, 'server_group')
++
++    # WRS:extension
++    def _action(self, action, id, response_key, info=None, **kwargs):
++        body = {action: info}
++        self.run_hooks('modify_body_for_action', body, **kwargs)
++        url = '/os-server-groups/%s/action' % id
++        _resp, body = self.api.client.post(url, body=body)
++        return self.resource_class(self, body[response_key])
++
++    # WRS:extension
++    def set_metadata(self, id, metadata):
++        action = 'set_metadata'
++        info = {'metadata': metadata}
++        return self._action(action, id, 'server_group', info)
+diff --git a/novaclient/v2/servers.py b/novaclient/v2/servers.py
+index 81a0b96..3139792 100644
+--- a/novaclient/v2/servers.py
++++ b/novaclient/v2/servers.py
+@@ -14,6 +14,13 @@
+ #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ #    License for the specific language governing permissions and limitations
+ #    under the License.
++#
++# Copyright (c) 2013-2016 Wind River Systems, Inc.
++#
++#
++#
++#
++#
+ 
+ """
+ Server interface.
+@@ -378,6 +385,15 @@ class Server(base.Resource):
+                                     preserve_ephemeral=preserve_ephemeral,
+                                     **kwargs)
+ 
++    def scale(self, resource, direction):
++        """
++        Scale the server's resources up or down without taking it offline.
++
++        :param resource: the resource to scale.  (Currently only 'cpu'.)
++        :param direction: the direction to scale.  ('up' or 'down')
++        """
++        self.manager.scale(self, resource, direction)
++
+     def resize(self, flavor, **kwargs):
+         """
+         Resize the server's resources.
+@@ -437,7 +453,8 @@ class Server(base.Resource):
+         networks = {}
+         try:
+             for network_label, address_list in self.addresses.items():
+-                networks[network_label] = [a['addr'] for a in address_list]
++                networks[network_label] = [a['addr'] or "No subnet" for a in
++                                           address_list]
+             return networks
+         except Exception:
+             return {}
+@@ -578,19 +595,20 @@ class Server(base.Resource):
+         return self.manager.interface_list(self)
+ 
+     @api_versions.wraps("2.0", "2.48")
+-    def interface_attach(self, port_id, net_id, fixed_ip):
++    def interface_attach(self, port_id, net_id, fixed_ip, vif_model=None):
+         """
+         Attach a network interface to an instance.
+         """
+-        return self.manager.interface_attach(self, port_id, net_id, fixed_ip)
++        return self.manager.interface_attach(self, port_id, net_id, fixed_ip,
++                                             vif_model)
+ 
+     @api_versions.wraps("2.49")
+-    def interface_attach(self, port_id, net_id, fixed_ip, tag=None):
++    def interface_attach(self, port_id, net_id, fixed_ip, tag, vif_model=None):
+         """
+         Attach a network interface to an instance with an optional tag.
+         """
+         return self.manager.interface_attach(self, port_id, net_id, fixed_ip,
+-                                             tag)
++                                             tag, vif_model)
+ 
+     def interface_detach(self, port_id):
+         """
+@@ -778,6 +796,8 @@ class ServerManager(base.BootingManagerWithFind):
+                         net_data['fixed_ip'] = nic_info['v6-fixed-ip']
+                     if nic_info.get('port-id'):
+                         net_data['port'] = nic_info['port-id']
++                    if nic_info.get('vif-model'):
++                        net_data['wrs-if:vif_model'] = nic_info['vif-model']
+                     if nic_info.get('tag'):
+                         net_data['tag'] = nic_info['tag']
+                     all_net_data.append(net_data)
+@@ -1497,12 +1517,19 @@ class ServerManager(base.BootingManagerWithFind):
+                       and each file must be 10k or less.
+         :param description: optional description of the server (allowed since
+                             microversion 2.19)
++        :param userdata: optional userdata of the server (allowed since
++                            microversion 2.19)
+         :returns: :class:`Server`
+         """
+         descr_microversion = api_versions.APIVersion("2.19")
+         if "description" in kwargs and self.api_version < descr_microversion:
+             raise exceptions.UnsupportedAttribute("description", "2.19")
+ 
++        # WRS. Adding userdata to rebuild as part of 2.19
++        userdata_microversion = api_versions.APIVersion("2.19")
++        if "userdata" in kwargs and self.api_version < userdata_microversion:
++            raise exceptions.UnsupportedAttribute("userdata", "2.19")
++
+         body = {'imageRef': base.getid(image)}
+         if password is not None:
+             body['adminPass'] = password
+@@ -1514,6 +1541,12 @@ class ServerManager(base.BootingManagerWithFind):
+             body['name'] = name
+         if "description" in kwargs:
+             body["description"] = kwargs["description"]
++        # WRS enhancements for userdata
++        # userdata needs to be base64 encoded
++        ud = kwargs.get("userdata")
++        if ud is not None:
++            userdata_b64 = base64.b64encode(ud).decode('utf-8')
++            body["userdata"] = userdata_b64
+         if meta:
+             body['metadata'] = meta
+         if files:
+@@ -1544,6 +1577,17 @@ class ServerManager(base.BootingManagerWithFind):
+         """
+         return self._action('migrate', server)
+ 
++    def scale(self, server, resource, direction):
++        """
++        Scale a server's resource without taking it offline.
++
++        :param server: The :class:`Server` (or its ID) to share onto.
++        :param resource: The resource to scale.  (Currently only 'cpu'.)
++        :param direction: The direction in which to scale. ('up' or 'down'.)
++        """
++        info = {'resource': resource, 'direction': direction}
++        self._action('wrs-res:scale', server, info=info)
++
+     def resize(self, server, flavor, disk_config=None, **kwargs):
+         """
+         Resize a server's resources.
+@@ -1858,7 +1902,8 @@ class ServerManager(base.BootingManagerWithFind):
+                           'interfaceAttachments', obj_class=NetworkInterface)
+ 
+     @api_versions.wraps("2.0", "2.48")
+-    def interface_attach(self, server, port_id, net_id, fixed_ip):
++    def interface_attach(self, server, port_id, net_id, fixed_ip,
++                         vif_model=None):
+         """
+         Attach a network_interface to an instance.
+ 
+@@ -1874,12 +1919,15 @@ class ServerManager(base.BootingManagerWithFind):
+         if fixed_ip:
+             body['interfaceAttachment']['fixed_ips'] = [
+                 {'ip_address': fixed_ip}]
++        if vif_model:
++            body['interfaceAttachment']['wrs-if:vif_model'] = vif_model
+ 
+         return self._create('/servers/%s/os-interface' % base.getid(server),
+                             body, 'interfaceAttachment')
+ 
+     @api_versions.wraps("2.49")
+-    def interface_attach(self, server, port_id, net_id, fixed_ip, tag=None):
++    def interface_attach(self, server, port_id, net_id, fixed_ip, tag=None,
++                         vif_model=None):
+         """
+         Attach a network_interface to an instance.
+ 
+@@ -1901,6 +1949,8 @@ class ServerManager(base.BootingManagerWithFind):
+         if fixed_ip:
+             body['interfaceAttachment']['fixed_ips'] = [
+                 {'ip_address': fixed_ip}]
++        if vif_model:
++            body['interfaceAttachment']['wrs-if:vif_model'] = vif_model
+         if tag:
+             body['interfaceAttachment']['tag'] = tag
+ 
+diff --git a/novaclient/v2/shell.py b/novaclient/v2/shell.py
+index 46b50ab..8c59b97 100644
+--- a/novaclient/v2/shell.py
++++ b/novaclient/v2/shell.py
+@@ -15,6 +15,13 @@
+ #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ #    License for the specific language governing permissions and limitations
+ #    under the License.
++#
++# Copyright (c) 2013-2016 Wind River Systems, Inc.
++#
++#
++#
++#
++#
+ 
+ from __future__ import print_function
+ 
+@@ -22,6 +29,7 @@ import argparse
+ import collections
+ import datetime
+ import getpass
++import json
+ import logging
+ import os
+ import pprint
+@@ -123,6 +131,26 @@ def _meta_parsing(metadata):
+         raise argparse.ArgumentTypeError(msg)
+ 
+ 
++# WRS:extension - type checking for key-value pair
++# returns text instead of tuple like above
++def _key_value_type(text):
++    try:
++        (k, v) = text.split('=', 1)
++        return text
++    except ValueError:
++        msg = "%r is not in the format of key=value" % text
++        raise argparse.ArgumentTypeError(msg)
++
++
++# WRS:extension - type checking for CSV key-value pairs
++def _csv_key_value_type(text):
++    try:
++        return map(_key_value_type, text.split(','))
++    except Exception as e:
++        raise exceptions.CommandError(
++            "Invalid csv key-value argument '%s'. %s" % (text, unicode(e)))
++
++
+ def _match_image(cs, wanted_properties):
+     image_list = cs.glance.list()
+     images_matched = []
+@@ -268,7 +296,8 @@ def _parse_nics(cs, args):
+     supports_auto_alloc = cs.api_version >= api_versions.APIVersion('2.37')
+     supports_nic_tags = _supports_nic_tags(cs)
+ 
+-    nic_keys = {'net-id', 'v4-fixed-ip', 'v6-fixed-ip', 'port-id', 'net-name'}
++    nic_keys = {'net-id', 'v4-fixed-ip', 'v6-fixed-ip', 'port-id', 'net-name',
++                'vif-model'}
+ 
+     if supports_auto_alloc and supports_nic_tags:
+         # API version >= 2.42
+@@ -276,36 +305,40 @@ def _parse_nics(cs, args):
+         err_msg = (_("Invalid nic argument '%s'. Nic arguments must be of "
+                      "the form --nic <auto,none,net-id=net-uuid,"
+                      "net-name=network-name,v4-fixed-ip=ip-addr,"
+-                     "v6-fixed-ip=ip-addr,port-id=port-uuid,tag=tag>, "
+-                     "with only one of net-id, net-name or port-id "
+-                     "specified. Specifying a --nic of auto or none cannot "
+-                     "be used with any other --nic value."))
++                     "v6-fixed-ip=ip-addr,port-id=port-uuid,tag=tag, "
++                     "vif-model=model>, "
++                     "with at minimum net-id, net-name or port-id "
++                     "(but not both) specified. Specifying a --nic of auto "
++                     "or none cannot be used with any other --nic value."))
+     elif supports_auto_alloc and not supports_nic_tags:
+         # 2.41 >= API version >= 2.37
+         err_msg = (_("Invalid nic argument '%s'. Nic arguments must be of "
+                      "the form --nic <auto,none,net-id=net-uuid,"
+                      "net-name=network-name,v4-fixed-ip=ip-addr,"
+-                     "v6-fixed-ip=ip-addr,port-id=port-uuid>, "
+-                     "with only one of net-id, net-name or port-id "
+-                     "specified. Specifying a --nic of auto or none cannot "
+-                     "be used with any other --nic value."))
++                     "v6-fixed-ip=ip-addr,port-id=port-uuid, "
++                     "vif-model=model>, "
++                     "with at minimum net-id, net-name or port-id "
++                     "(but not both) specified. Specifying a --nic of auto "
++                     "or none cannot be used with any other --nic value."))
+     elif not supports_auto_alloc and supports_nic_tags:
+         # 2.36 >= API version >= 2.32
+         nic_keys.add('tag')
+         err_msg = (_("Invalid nic argument '%s'. Nic arguments must be of "
+                      "the form --nic <net-id=net-uuid,"
+                      "net-name=network-name,v4-fixed-ip=ip-addr,"
+-                     "v6-fixed-ip=ip-addr,port-id=port-uuid,tag=tag>, "
+-                     "with only one of net-id, net-name or port-id "
+-                     "specified."))
++                     "v6-fixed-ip=ip-addr,port-id=port-uuid,tag=tag, "
++                     "vif-model=model>, "
++                     "with at minimum net-id, net-name or port-id "
++                     "(but not both) specified."))
+     else:
+         # API version <= 2.31
+         err_msg = (_("Invalid nic argument '%s'. Nic arguments must be of "
+                      "the form --nic <net-id=net-uuid,"
+                      "net-name=network-name,v4-fixed-ip=ip-addr,"
+-                     "v6-fixed-ip=ip-addr,port-id=port-uuid>, "
+-                     "with only one of net-id, net-name or port-id "
+-                     "specified."))
++                     "v6-fixed-ip=ip-addr,port-id=port-uuid, "
++                     "vif-model=model>, "
++                     "with at minimum net-id, net-name or port-id "
++                     "(but not both) specified."))
+     auto_or_none = False
+     nics = []
+     for nic_str in args.nics:
+@@ -759,7 +792,7 @@ def _boot(cs, args):
+ @utils.arg(
+     '--nic',
+     metavar="<net-id=net-uuid,net-name=network-name,v4-fixed-ip=ip-addr,"
+-            "v6-fixed-ip=ip-addr,port-id=port-uuid>",
++            "v6-fixed-ip=ip-addr,port-id=port-uuid,vif-model=model>",
+     action='append',
+     dest='nics',
+     default=[],
+@@ -772,7 +805,8 @@ def _boot(cs, args):
+            "(either port-id or net-id or net-name must be provided), "
+            "v4-fixed-ip: IPv4 fixed address for NIC (optional), "
+            "v6-fixed-ip: IPv6 fixed address for NIC (optional), "
+-           "port-id: attach NIC to port with this UUID "
++           "port-id: attach NIC to port with this UUID, "
++           "vif-model: emulated hardware device type (optional), "
+            "(either port-id or net-id must be provided)."))
+ @utils.arg(
+     '--nic',
+@@ -790,7 +824,8 @@ def _boot(cs, args):
+            "(either port-id or net-id or net-name must be provided), "
+            "v4-fixed-ip: IPv4 fixed address for NIC (optional), "
+            "v6-fixed-ip: IPv6 fixed address for NIC (optional), "
+-           "port-id: attach NIC to port with this UUID "
++           "port-id: attach NIC to port with this UUID, "
++           "vif-model: emulated hardware device type (optional), "
+            "tag: interface metadata tag (optional) "
+            "(either port-id or net-id must be provided)."))
+ @utils.arg(
+@@ -840,7 +875,8 @@ def _boot(cs, args):
+            "(either port-id or net-id or net-name must be provided), "
+            "v4-fixed-ip: IPv4 fixed address for NIC (optional), "
+            "v6-fixed-ip: IPv6 fixed address for NIC (optional), "
+-           "port-id: attach NIC to port with this UUID "
++           "port-id: attach NIC to port with this UUID, "
++           "vif-model: emulated hardware device type (optional), "
+            "tag: interface metadata tag (optional) "
+            "(either port-id or net-id must be provided)."))
+ @utils.arg(
+@@ -973,7 +1009,13 @@ def _poll_for_status(poll_fn, obj_id, action, final_ok_states,
+         elif status == "deleted":
+             if not silent:
+                 print(_("\nDeleted %s server") % action)
+-            raise exceptions.InstanceInDeletedState(obj.fault["message"])
++            msg = getattr(obj, 'metadata', {}).get('kill_reason')
++            if msg is None:
++                msg = getattr(
++                    obj, 'fault',
++                    {'message': 'check logs for uuid {}'.format(obj_id)}
++                )['message']
++            raise exceptions.InstanceInDeletedState(msg)
+ 
+         if not silent:
+             print_progress(progress)
+@@ -1282,18 +1324,23 @@ def do_flavor_access_remove(cs, args):
+     utils.print_list(access_list, columns)
+ 
+ 
++# WRS:extension -- handle multiple metadata key/value pairs in the form of
++# --metadata key1=value1 --metadata key2=value2
++# Note that multiple metadata options can also be specified like this:
++# --metadata key1=value1,key2=value2
+ def _extract_metadata(args):
+     metadata = {}
+-    for metadatum in args.metadata[0]:
+-        # Can only pass the key in on 'delete'
+-        # So this doesn't have to have '='
+-        if metadatum.find('=') > -1:
+-            (key, value) = metadatum.split('=', 1)
+-        else:
+-            key = metadatum
+-            value = None
++    for group in args.metadata:
++        for metadatum in group:
++            # Can only pass the key in on 'delete'
++            # So this doesn't have to have '='
++            if metadatum.find('=') > -1:
++                (key, value) = metadatum.split('=', 1)
++            else:
++                key = metadatum
++                value = None
++            metadata[key] = value
+ 
+-        metadata[key] = value
+     return metadata
+ 
+ 
+@@ -1774,6 +1821,12 @@ def do_reboot(cs, args):
+     default=[],
+     help=_("Store arbitrary files from <src-path> locally to <dst-path> "
+            "on the new server. You may store up to 5 files."))
++@utils.arg(
++    '--userdata',
++    metavar='<userdata>',
++    default=None,
++    help=_('New userdata for the new server.'),
++    start_version="2.19")
+ def do_rebuild(cs, args):
+     """Shutdown, re-image, and re-boot a server."""
+     server = _find_server(cs, args.server)
+@@ -1786,6 +1839,10 @@ def do_rebuild(cs, args):
+ 
+     kwargs = utils.get_resource_manager_extra_kwargs(do_rebuild, args)
+     kwargs['preserve_ephemeral'] = args.preserve_ephemeral
++    # WRS enhancement to allow new userdata during rebuild.
++    # Passing None will leave the existing userdata
++    if 'userdata' in args:
++        kwargs['userdata'] = args.userdata
+     kwargs['name'] = args.name
+     if 'description' in args:
+         kwargs['description'] = args.description
+@@ -1847,6 +1904,21 @@ def do_update(cs, args):
+ 
+ @utils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
+ @utils.arg(
++    'resource',
++    metavar='<resource>',
++    help=_('Resource to scale.  (Currently only "cpu".)'))
++@utils.arg(
++    'direction',
++    metavar='<direction>',
++    help=_('Direction to scale ("up" or "down")'))
++def do_scale(cs, args):
++    """Scale a server up or down without taking it offline."""
++    server = _find_server(cs, args.server)
++    server.scale(args.resource, args.direction)
++
++
++@utils.arg('server', metavar='<server>', help=_('Name or ID of server.'))
++@utils.arg(
+     'flavor',
+     metavar='<flavor>',
+     help=_("Name or ID of new flavor."))
+@@ -2218,6 +2290,11 @@ def _print_server(cs, args, server=None, wrap=0):
+     info.pop('links', None)
+     info.pop('addresses', None)
+ 
++    # Display an abbreviated list of nics
++    unsorted_nics = getattr(server, 'wrs-if:nics', [])
++    nics = sorted(unsorted_nics, key=lambda nic: nic.keys()[0])
++    info['wrs-if:nics'] = "\n".join([json.dumps(nic) for nic in nics])
++
+     utils.print_dict(info, wrap=wrap)
+ 
+ 
+@@ -3631,6 +3708,12 @@ def do_host_list(cs, args):
+     default=None,
+     dest='maintenance',
+     help=_('Either put or resume host to/from maintenance.'))
++@utils.arg(
++    '--availability',
++    metavar='<up|down>',
++    default=None,
++    dest='availability',
++    help=_('Report availability of the host as up or down.'))
+ def do_host_update(cs, args):
+     """DEPRECATED Update host settings."""
+     if args.status == 'enable':
+@@ -3766,7 +3849,17 @@ def do_hypervisor_servers(cs, args):
+ def do_hypervisor_show(cs, args):
+     """Display the details of the specified hypervisor."""
+     hyper = _find_hypervisor(cs, args.hypervisor)
+-    utils.print_dict(utils.flatten_dict(hyper.to_dict()), wrap=int(args.wrap))
++    hyper_node = {}
++    hyper_dict = hyper._info.copy()
++    for key, value in hyper_dict.items():
++        if key in ('memory_mb_by_node', 'memory_mb_used_by_node',
++                   'vcpus_by_node', 'vcpus_used_by_node'):
++            newkey = key.replace('_by', '')
++            hyper_node[newkey] = value
++            del hyper_dict[key]
++    hyper_dict = utils.flatten_dict(hyper_dict)
++    hyper_dict.update(hyper_node)
++    utils.print_dict(hyper_dict, wrap=int(args.wrap))
+ 
+ 
+ @utils.arg(
+@@ -4468,6 +4561,11 @@ def do_interface_list(cs, args):
+     dest="tag",
+     help=_('Tag for the attached interface.'),
+     start_version="2.49")
++@utils.arg(
++    '--wrs-if:vif_model',
++    metavar='<vif_model>',
++    help=_('Requested VIF model.'),
++    default=None, dest="wrs-if:vif_model")
+ def do_interface_attach(cs, args):
+     """Attach a network interface to a server."""
+     server = _find_server(cs, args.server)
+@@ -4476,6 +4574,9 @@ def do_interface_attach(cs, args):
+     if 'tag' in args and args.tag:
+         update_kwargs['tag'] = args.tag
+ 
++    if 'wrs-if:vif_model' in args:
++        update_kwargs['vif_model'] = getattr(args, 'wrs-if:vif_model')
++
+     res = server.interface_attach(args.port_id, args.net_id, args.fixed_ip,
+                                   **update_kwargs)
+     if isinstance(res, dict):
+@@ -4562,17 +4663,28 @@ def do_availability_zone_list(cs, _args):
+                      sortby_index=None)
+ 
+ 
++def _print_server_group_project_id(obj):
++    if hasattr(obj, 'project_id'):
++        data = getattr(obj, 'project_id', '-')
++    else:
++        data = '-'
++    return data
++
++
+ @api_versions.wraps("2.0", "2.12")
+ def _print_server_group_details(cs, server_group):
+-    columns = ['Id', 'Name', 'Policies', 'Members', 'Metadata']
+-    utils.print_list(server_group, columns)
++    # WRS:extension -- append 'project_id'
++    formatters = {'Project Id': _print_server_group_project_id}
++    columns = ['Id', 'Project Id', 'Name', 'Policies', 'Members', 'Metadata']
++    utils.print_list(server_group, columns, formatters)
+ 
+ 
+ @api_versions.wraps("2.13")
+ def _print_server_group_details(cs, server_group):    # noqa
+     columns = ['Id', 'Name', 'Project Id', 'User Id',
+                'Policies', 'Members', 'Metadata']
+-    utils.print_list(server_group, columns)
++    formatters = {'Project Id': _print_server_group_project_id}
++    utils.print_list(server_group, columns, formatters)
+ 
+ 
+ @utils.arg(
+@@ -4612,9 +4724,18 @@ def do_server_group_list(cs, args):
+     metavar='<policy>',
+     nargs='+',
+     help=_('Policies for the server groups.'))
++@utils.arg(
++    '--metadata',
++    default=[],
++    action='append',
++    type=_csv_key_value_type,
++    metavar='key1=value1[,key2=value2...]',
++    help='Metadata to set/unset (only key is necessary on unset)')
+ def do_server_group_create(cs, args):
+     """Create a new server group with the specified details."""
++    metadata = _extract_metadata(args)
+     server_group = cs.server_groups.create(name=args.name,
++                                           metadata=metadata,
+                                            policies=args.policy)
+     _print_server_group_details(cs, [server_group])
+ 
+@@ -4651,6 +4772,27 @@ def do_server_group_get(cs, args):
+     _print_server_group_details(cs, [server_group])
+ 
+ 
++# WRS:extension
++@utils.arg(
++    'id',
++    metavar='<id>',
++    help="Unique ID of the server group to update")
++@utils.arg(
++    'metadata',
++    metavar='<key=value>',
++    nargs='+',
++    action='append',
++    default=[],
++    type=_key_value_type,
++    help=_('Metadata to set/unset (omit value to unset)'))
++def do_server_group_set_metadata(cs, args):
++    """Update the metadata associated with the server group."""
++    metadata = _extract_metadata(args)
++    server_group = cs.server_groups.set_metadata(args.id, metadata)
++    print(_("Server group %s has been successfully updated.") % args.id)
++    _print_server_group_details(cs, [server_group])
++
++
+ def do_version_list(cs, args):
+     """List all API versions."""
+     result = cs.versions.list()
+-- 
+2.7.4
+

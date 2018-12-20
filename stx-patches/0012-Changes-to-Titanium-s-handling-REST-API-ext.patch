@@ -1,0 +1,29 @@
+From 8eb0dbd19402eb4d386a376871f84ba622047295 Mon Sep 17 00:00:00 2001
+From: Jerry Sun <jerry.sun@windriver.com>
+Date: Wed, 17 Jan 2018 09:28:41 -0500
+Subject: [PATCH 12/20] Changes to Titanium's handling REST API extensions
+
+Nova client now sends a wrs-header on all requests
+Nova responds with wrs- fields when wrs-header is seen
+Nova removes wrs- fields if the wrs-header is not present, like when sent by
+non-wrs clients
+---
+ novaclient/client.py | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/novaclient/client.py b/novaclient/client.py
+index 2d27163..3effdec 100644
+--- a/novaclient/client.py
++++ b/novaclient/client.py
+@@ -62,6 +62,8 @@ class SessionClient(adapter.LegacyJsonAdapter):
+         kwargs.setdefault('headers', kwargs.get('headers', {}))
+         api_versions.update_headers(kwargs["headers"], self.api_version)
+ 
++        kwargs['headers']['wrs-header'] = 'true'
++
+         # NOTE(dbelova): osprofiler_web.get_trace_id_headers does not add any
+         # headers in case if osprofiler is not initialized.
+         if osprofiler_web:
+-- 
+2.7.4
+

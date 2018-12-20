@@ -1,0 +1,43 @@
+From b4acc13f9a0dbb241624917c871fff50db7f253d Mon Sep 17 00:00:00 2001
+From: Jim Gauld <james.gauld@windriver.com>
+Date: Fri, 2 Mar 2018 16:11:20 -0500
+Subject: [PATCH 16/20] novaclient display fault message for ResourceInErrorState exception
+
+This displays the actual fault message for a ResourceInErrorState
+exception instead of empty message, when nova '--poll' option is
+specified. This corrects an upstream bug.
+
+Example:
+nova resize --poll 9ba750a3-92b2-4955-b942-8a9ca7c0bbb7 \
+f14fbac0-79f5-44f2-b845-40d32146aca5
+
+Server resizing... 0% complete
+Error resizing server
+ERROR (ResourceInErrorState): `Server` resource is in the error state
+due to 'Insufficient compute resources: Requested instance NUMA topology
+cannot fit the given host NUMA topology.'.
+---
+ novaclient/exceptions.py | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/novaclient/exceptions.py b/novaclient/exceptions.py
+index 707aa88..0eb0fa9 100644
+--- a/novaclient/exceptions.py
++++ b/novaclient/exceptions.py
+@@ -101,9 +101,12 @@ class ResourceInErrorState(Exception):
+         msg = "`%s` resource is in the error state" % obj.__class__.__name__
+         fault_msg = getattr(obj, "fault", {}).get("message")
+         if fault_msg:
+-            msg += "due to '%s'" % fault_msg
++            msg += " due to '%s'" % fault_msg
+         self.message = "%s." % msg
+ 
++    def __str__(self):
++        return self.message
++
+ 
+ class VersionNotFoundForAPIMethod(Exception):
+     msg_fmt = "API version '%(vers)s' is not supported on '%(method)s' method."
+-- 
+2.7.4
+
