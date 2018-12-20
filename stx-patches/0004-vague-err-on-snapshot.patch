@@ -1,0 +1,68 @@
+From 76f04e19f3ac155cb5edd9b8921255e559bb34ac Mon Sep 17 00:00:00 2001
+From: Florin Dumitrascu <florin.dumitrascu@windriver.com>
+Date: Thu, 30 Mar 2017 13:54:06 +0000
+Subject: [PATCH 04/20] US94307: Bugzilla-164, vague err on snapshot create failure
+
+Glance API v2 has been refactored and behavior has changed.
+The snapshot image is deleted upon failure to upload.
+However this happens while the poll function still tries to
+get the image from glance and hence an HTTP 404 NotFound exception
+is thrown and not caught. Suggested solution is to catch the
+NotFound exception and print an error message to the CLI
+instructing the user to check the logs. It would be nicer to print
+the exact reason the image was deleted to the CLI, however in glance
+API v2 it doesn't seem possible to query an image which has status
+"deleted".
+
+__TYPE_single
+__TAG_image
+__R4_commit_79f018b
+---
+ novaclient/v2/shell.py | 19 ++++++++++++++-----
+ 1 file changed, 14 insertions(+), 5 deletions(-)
+
+diff --git a/novaclient/v2/shell.py b/novaclient/v2/shell.py
+index 5bd3266..95d6d49 100644
+--- a/novaclient/v2/shell.py
++++ b/novaclient/v2/shell.py
+@@ -989,15 +989,22 @@ def _poll_for_status(poll_fn, obj_id, action, final_ok_states,
+     if not silent:
+         print()
+ 
++    # Glance API v1 and v2 behave differently.
++    # In v1 it is possible to retrieve an image in 'deleted' state,
++    # but in v2 this does not seem possible. Prepare to catch a
++    # "NotFound' exception in poll function.
++    obj = None
+     while True:
+-        obj = poll_fn(obj_id)
+-
+-        status = getattr(obj, status_field)
++        try:
++            obj = poll_fn(obj_id)
++            status = getattr(obj, status_field)
++            progress = getattr(obj, 'progress', None) or 0
++        except exceptions.NotFound:
++            status = "deleted"
+ 
+         if status:
+             status = status.lower()
+ 
+-        progress = getattr(obj, 'progress', None) or 0
+         if status in final_ok_states:
+             if not silent:
+                 print_progress(100)
+@@ -1010,7 +1017,9 @@ def _poll_for_status(poll_fn, obj_id, action, final_ok_states,
+         elif status == "deleted":
+             if not silent:
+                 print(_("\nDeleted %s server") % action)
+-            msg = getattr(obj, 'metadata', {}).get('kill_reason')
++            msg = None
++            if obj is not None:
++                msg = getattr(obj, 'metadata', {}).get('kill_reason')
+             if msg is None:
+                 msg = getattr(
+                     obj, 'fault',
+-- 
+2.7.4
+

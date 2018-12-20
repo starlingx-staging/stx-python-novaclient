@@ -1,0 +1,27 @@
+From 100e9b1762fc5865ac7ec5f6fb126f381b13d088 Mon Sep 17 00:00:00 2001
+From: Wen Shi <wen.shi@windriver.com>
+Date: Thu, 1 Feb 2018 17:02:28 -0600
+Subject: [PATCH 13/20] Update nova client config to support tox coverage
+
+---
+ tox.ini | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/tox.ini b/tox.ini
+index 2dbedcf..f0fb273 100644
+--- a/tox.ini
++++ b/tox.ini
+@@ -58,8 +58,9 @@ commands = bash tools/pretty_tox.sh '--concurrency=1 {posargs}'
+ 
+ [testenv:cover]
+ commands =
++  coverage erase
+   python setup.py testr --coverage --testr-args='{posargs}'
+-  coverage report
++  coverage xml
+ 
+ [flake8]
+ # Following checks should be enabled in the future.
+-- 
+2.7.4
+

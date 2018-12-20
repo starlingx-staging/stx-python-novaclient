@@ -1,0 +1,33 @@
+From 8842b6a609d7fee8f2c731416658b6ff65daf37f Mon Sep 17 00:00:00 2001
+From: Sen Yang <sen.yang@windriver.com>
+Date: Mon, 5 Mar 2018 11:18:45 -0500
+Subject: [PATCH 18/20] nova usage-list not reporting the proper
+ usage values     This is upstream bug related to usage-list pagination
+ feature     The logic of original code for assembly of paged usage-list    
+ is problematic. The usages dict has been populated with full     list of
+ usages data.  However, each suequential page with     usage info is
+ continuously added to the usages which caused     duplication of usage data
+ except the fist page. Therefore     the fix here is to populate the initial
+ usages dict with only     the first page of usage data
+
+---
+ novaclient/v2/shell.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/novaclient/v2/shell.py b/novaclient/v2/shell.py
+index d57129d..d4ba941 100644
+--- a/novaclient/v2/shell.py
++++ b/novaclient/v2/shell.py
+@@ -3067,7 +3067,8 @@ def do_usage_list(cs, args):
+         # duplication of  usage data except the fist page. Therefore the
+         # fix here is to populate the initial usages dict with the first
+         # page of usage data (usage_list[-1]).
+-        usages[usage_list[-1].tenant_id] = usage_list[-1]
++        if usage_list:
++            usages[usage_list[-1].tenant_id] = usage_list[-1]
+ 
+         marker = _get_usage_list_marker(usage_list)
+         while marker:
+-- 
+2.7.4
+

@@ -1,0 +1,380 @@
+From 9c88a3c43edbe3417f9da076af8de1795f8f835c Mon Sep 17 00:00:00 2001
+From: Francois Palin <francois.palin@windriver.com>
+Date: Thu, 23 Nov 2017 13:53:10 -0500
+Subject: [PATCH 09/20] Bug-233 - nova: commands providernet-show, device-list,
+ and device-show are not recognized
+
+Squash to 6ad3249: US92274: Newton Rebase part 2
+
+As per upstream commit f834711d2f4, all extensions
+from novaclient.v2.contrib should be moved from contrib dir.
+This goes too for wrs custom commands.
+---
+ novaclient/v2/client.py                   |  4 ++
+ novaclient/v2/contrib/wrs_pci.py          | 96 +++----------------------------
+ novaclient/v2/contrib/wrs_providernets.py | 36 +++---------
+ novaclient/v2/shell.py                    | 52 +++++++++++++++++
+ novaclient/v2/wrs_pci.py                  | 67 +++++++++++++++++++++
+ novaclient/v2/wrs_providernets.py         | 38 ++++++++++++
+ 6 files changed, 176 insertions(+), 117 deletions(-)
+ create mode 100644 novaclient/v2/wrs_pci.py
+ create mode 100644 novaclient/v2/wrs_providernets.py
+
+diff --git a/novaclient/v2/client.py b/novaclient/v2/client.py
+index b850773..5514087 100644
+--- a/novaclient/v2/client.py
++++ b/novaclient/v2/client.py
+@@ -48,6 +48,8 @@ from novaclient.v2 import usage
+ from novaclient.v2 import versions
+ from novaclient.v2 import virtual_interfaces
+ from novaclient.v2 import volumes
++from novaclient.v2 import wrs_pci
++from novaclient.v2 import wrs_providernets
+ 
+ 
+ class Client(object):
+@@ -182,6 +184,8 @@ class Client(object):
+         self.migrations = migrations.MigrationManager(self)
+         self.server_external_events = \
+             server_external_events.ServerExternalEventManager(self)
++        self.wrs_pci = wrs_pci.PciDevicesManager(self)
++        self.wrs_providernets = wrs_providernets.ProviderNetsManager(self)
+ 
+         self.logger = logger or logging.getLogger(__name__)
+ 
+diff --git a/novaclient/v2/contrib/wrs_pci.py b/novaclient/v2/contrib/wrs_pci.py
+index 34c9d9d..14703b2 100644
+--- a/novaclient/v2/contrib/wrs_pci.py
++++ b/novaclient/v2/contrib/wrs_pci.py
+@@ -16,96 +16,14 @@
+ # of an applicable Wind River license agreement.
+ #
+ 
+-from six.moves.urllib import parse
++"""
++wrs pci interface
++"""
+ 
+-from novaclient import base
+-from novaclient.i18n import _
+-from novaclient import utils
++from novaclient.v2 import contrib
++from novaclient.v2 import wrs_pci
+ 
+ 
+-class PciDevicesManager(base.Manager):
+-    resource_class = base.Resource
++PciDevicesManager = wrs_pci.PciDevicesManager
+ 
+-    def list(self, host=None, device=None):
+-        """
+-        Get PCI device usage statistics.
+-
+-        :param host: Name of the compute host to collect PCI statistics for
+-        :param device: Device id or name to collect PCI statistics for
+-        :rtype: :class:`PciDevice`
+-        """
+-        opts = {}
+-        if host:
+-            opts['host'] = host
+-        if device:
+-            opts['device'] = device
+-
+-        # Transform the dict to a sequence of two-element tuples in fixed
+-        # order, then the encoded string will be consistent in Python 2&3.
+-        new_opts = sorted(opts.items(), key=lambda x: x[0])
+-
+-        query_string = "?%s" % parse.urlencode(new_opts) if new_opts else ""
+-
+-        return self._list("/wrs-pci%s" % query_string, "pci_device_usage")
+-
+-    def get(self, device, host=None):
+-        """
+-        Get PCI device usage statistics for a specific device.
+-
+-        :param device: Name of the :class:`PciDevice` to get.
+-        :rtype: :class:`PciDevice`
+-        """
+-        opts = {}
+-        if host:
+-            opts['host'] = host
+-
+-        # Transform the dict to a sequence of two-element tuples in fixed
+-        # order, then the encoded string will be consistent in Python 2&3.
+-        new_opts = sorted(opts.items(), key=lambda x: x[0])
+-
+-        query_string = "?%s" % parse.urlencode(new_opts) if new_opts else ""
+-
+-        return self._list("/wrs-pci/%s%s" % (device, query_string),
+-                          "pci_device_usage")
+-
+-
+-@utils.arg(
+-    '--device',
+-    metavar='<device>',
+-    help=_('PCI devices matching a particular device id or alias.'),
+-    default=None)
+-def do_device_list(cs, args):
+-    """Show details of PCI devices in the system."""
+-    fields = ['PCI Alias', 'Device Id', 'Vendor Id', 'Class Id',
+-              'pci_pfs_configured', 'pci_pfs_used', 'pci_vfs_configured',
+-              'pci_vfs_used']
+-    devices = cs.wrs_pci.list(device=args.device)
+-
+-    def get_name(device):
+-        return device.device_name
+-    formatters = {'PCI Alias': get_name}
+-
+-    utils.print_list(devices, fields, formatters)
+-
+-
+-@utils.arg(
+-    'device',
+-    metavar='<device>',
+-    help=_('device alias or device id of the PCI device.'))
+-@utils.arg(
+-    '--host',
+-    metavar='<host>',
+-    help=_('PCI devices matching a particular host'),
+-    default=None)
+-def do_device_show(cs, args):
+-    """Show details of a given PCI device."""
+-    fields = ['PCI Alias', 'Device Id', 'Vendor Id', 'Class Id', 'Host',
+-              'pci_pfs_configured', 'pci_pfs_used', 'pci_vfs_configured',
+-              'pci_vfs_used']
+-
+-    def get_name(device):
+-        return device.device_name
+-    formatters = {'PCI Alias': get_name}
+-
+-    device = cs.wrs_pci.get(args.device, args.host)
+-    utils.print_list(device, fields, formatters, sortby_index=4)
++contrib.warn()
+diff --git a/novaclient/v2/contrib/wrs_providernets.py b/novaclient/v2/contrib/wrs_providernets.py
+index 1fe60e9..2f888cd 100644
+--- a/novaclient/v2/contrib/wrs_providernets.py
++++ b/novaclient/v2/contrib/wrs_providernets.py
+@@ -16,35 +16,15 @@
+ # of an applicable Wind River license agreement.
+ #
+ 
+-from novaclient import base
+-from novaclient.i18n import _
+-from novaclient import utils
++"""
++wrs provider nets interface
++"""
+ 
++from novaclient.v2 import contrib
++from novaclient.v2 import wrs_providernets
+ 
+-class ProviderNet(base.Resource):
+-    def __repr__(self):
+-        return "<ProviderNet: %s>" % self.name
+ 
++ProviderNet = wrs_providernets.ProviderNet
++ProviderNetsManager = wrs_providernets.ProviderNetsManager
+ 
+-class ProviderNetsManager(base.Manager):
+-    resource_class = ProviderNet
+-
+-    def get(self, providernet_name):
+-        """
+-        Get a provider network.
+-
+-        :param providernet_name: Name of the :class:`ProviderNet` to get.
+-        :rtype: :class:`ProviderNet`
+-        """
+-        return self._get("/wrs-providernet/%s" % providernet_name,
+-                         "providernet")
+-
+-
+-@utils.arg(
+-    'providernet',
+-    metavar='<providernet_id>',
+-    help=_('id of the provider network.'))
+-def do_providernet_show(cs, args):
+-    """Show details of a given provider network."""
+-    providernet = cs.wrs_providernets.get(args.providernet)
+-    utils.print_dict(providernet._info)
++contrib.warn()
+diff --git a/novaclient/v2/shell.py b/novaclient/v2/shell.py
+index ff1984f..7daafcd 100644
+--- a/novaclient/v2/shell.py
++++ b/novaclient/v2/shell.py
+@@ -5300,3 +5300,55 @@ def do_migration_list(cs, args):
+     migrations = cs.migrations.list(args.host, args.status, None,
+                                     instance_uuid=args.instance_uuid)
+     _print_migrations(cs, migrations)
++
++
++@utils.arg(
++    '--device',
++    metavar='<device>',
++    help=_('PCI devices matching a particular device id or alias.'),
++    default=None)
++def do_device_list(cs, args):
++    """Show details of PCI devices in the system."""
++    fields = ['PCI Alias', 'Device Id', 'Vendor Id', 'Class Id',
++              'pci_pfs_configured', 'pci_pfs_used', 'pci_vfs_configured',
++              'pci_vfs_used']
++    devices = cs.wrs_pci.list(device=args.device)
++
++    def get_name(device):
++        return device.device_name
++    formatters = {'PCI Alias': get_name}
++
++    utils.print_list(devices, fields, formatters)
++
++
++@utils.arg(
++    'device',
++    metavar='<device>',
++    help=_('device alias or device id of the PCI device.'))
++@utils.arg(
++    '--host',
++    metavar='<host>',
++    help=_('PCI devices matching a particular host'),
++    default=None)
++def do_device_show(cs, args):
++    """Show details of a given PCI device."""
++    fields = ['PCI Alias', 'Device Id', 'Vendor Id', 'Class Id', 'Host',
++              'pci_pfs_configured', 'pci_pfs_used', 'pci_vfs_configured',
++              'pci_vfs_used']
++
++    def get_name(device):
++        return device.device_name
++    formatters = {'PCI Alias': get_name}
++
++    device = cs.wrs_pci.get(args.device, args.host)
++    utils.print_list(device, fields, formatters, sortby_index=4)
++
++
++@utils.arg(
++    'providernet',
++    metavar='<providernet_id>',
++    help=_('id of the provider network.'))
++def do_providernet_show(cs, args):
++    """Show details of a given provider network."""
++    providernet = cs.wrs_providernets.get(args.providernet)
++    utils.print_dict(providernet._info)
+diff --git a/novaclient/v2/wrs_pci.py b/novaclient/v2/wrs_pci.py
+new file mode 100644
+index 0000000..6c1e365
+--- /dev/null
++++ b/novaclient/v2/wrs_pci.py
+@@ -0,0 +1,67 @@
++#   Licensed under the Apache License, Version 2.0 (the "License"); you may
++#   not use this file except in compliance with the License. You may obtain
++#   a copy of the License at
++#
++#       http://www.apache.org/licenses/LICENSE-2.0
++#
++#   Unless required by applicable law or agreed to in writing, software
++#   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#   License for the specific language governing permissions and limitations
++#   under the License.
++#
++# Copyright (c) 2015-2017 Wind River Systems, Inc.
++# The right to copy, distribute, modify, or otherwise make use
++# of this software may be licensed only pursuant to the terms
++# of an applicable Wind River license agreement.
++#
++
++from six.moves.urllib import parse
++
++from novaclient import base
++
++
++class PciDevicesManager(base.Manager):
++    resource_class = base.Resource
++
++    def list(self, host=None, device=None):
++        """
++        Get PCI device usage statistics.
++
++        :param host: Name of the compute host to collect PCI statistics for
++        :param device: Device id or name to collect PCI statistics for
++        :rtype: :class:`PciDevice`
++        """
++        opts = {}
++        if host:
++            opts['host'] = host
++        if device:
++            opts['device'] = device
++
++        # Transform the dict to a sequence of two-element tuples in fixed
++        # order, then the encoded string will be consistent in Python 2&3.
++        new_opts = sorted(opts.items(), key=lambda x: x[0])
++
++        query_string = "?%s" % parse.urlencode(new_opts) if new_opts else ""
++
++        return self._list("/wrs-pci%s" % query_string, "pci_device_usage")
++
++    def get(self, device, host=None):
++        """
++        Get PCI device usage statistics for a specific device.
++
++        :param device: Name of the :class:`PciDevice` to get.
++        :rtype: :class:`PciDevice`
++        """
++        opts = {}
++        if host:
++            opts['host'] = host
++
++        # Transform the dict to a sequence of two-element tuples in fixed
++        # order, then the encoded string will be consistent in Python 2&3.
++        new_opts = sorted(opts.items(), key=lambda x: x[0])
++
++        query_string = "?%s" % parse.urlencode(new_opts) if new_opts else ""
++
++        return self._list("/wrs-pci/%s%s" % (device, query_string),
++                          "pci_device_usage")
+diff --git a/novaclient/v2/wrs_providernets.py b/novaclient/v2/wrs_providernets.py
+new file mode 100644
+index 0000000..1629e57
+--- /dev/null
++++ b/novaclient/v2/wrs_providernets.py
+@@ -0,0 +1,38 @@
++#   Licensed under the Apache License, Version 2.0 (the "License"); you may
++#   not use this file except in compliance with the License. You may obtain
++#   a copy of the License at
++#
++#       http://www.apache.org/licenses/LICENSE-2.0
++#
++#   Unless required by applicable law or agreed to in writing, software
++#   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++#   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
++#   License for the specific language governing permissions and limitations
++#   under the License.
++#
++# Copyright (c) 2015-2017 Wind River Systems, Inc.
++# The right to copy, distribute, modify, or otherwise make use
++# of this software may be licensed only pursuant to the terms
++# of an applicable Wind River license agreement.
++#
++
++from novaclient import base
++
++
++class ProviderNet(base.Resource):
++    def __repr__(self):
++        return "<ProviderNet: %s>" % self.name
++
++
++class ProviderNetsManager(base.Manager):
++    resource_class = ProviderNet
++
++    def get(self, providernet_name):
++        """
++        Get a provider network.
++
++        :param providernet_name: Name of the :class:`ProviderNet` to get.
++        :rtype: :class:`ProviderNet`
++        """
++        return self._get("/wrs-providernet/%s" % providernet_name,
++                         "providernet")
+-- 
+2.7.4
+

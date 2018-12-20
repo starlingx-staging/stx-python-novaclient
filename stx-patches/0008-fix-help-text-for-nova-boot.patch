@@ -1,0 +1,84 @@
+From 2786c9e8e4cf07ba2539bdd562a78ea756346b27 Mon Sep 17 00:00:00 2001
+From: Jack Ding <jack.ding@windriver.com>
+Date: Fri, 10 Nov 2017 15:58:05 -0500
+Subject: [PATCH 08/20] US104439: fix help text for nova boot
+
+squash to: US92274: Newton Rebase part 1 and part 2
+---
+ novaclient/v2/shell.py | 20 ++++++++++++++------
+ 1 file changed, 14 insertions(+), 6 deletions(-)
+
+diff --git a/novaclient/v2/shell.py b/novaclient/v2/shell.py
+index e7dbfe3..ff1984f 100644
+--- a/novaclient/v2/shell.py
++++ b/novaclient/v2/shell.py
+@@ -792,7 +792,8 @@ def _boot(cs, args):
+ @utils.arg(
+     '--nic',
+     metavar="<net-id=net-uuid,net-name=network-name,v4-fixed-ip=ip-addr,"
+-            "v6-fixed-ip=ip-addr,port-id=port-uuid,vif-model=model>",
++            "v6-fixed-ip=ip-addr,port-id=port-uuid,vif-model=model,"
++            "vif-pci-address=pci-address>",
+     action='append',
+     dest='nics',
+     default=[],
+@@ -812,7 +813,8 @@ def _boot(cs, args):
+ @utils.arg(
+     '--nic',
+     metavar="<net-id=net-uuid,net-name=network-name,v4-fixed-ip=ip-addr,"
+-            "v6-fixed-ip=ip-addr,port-id=port-uuid,tag=tag>",
++            "v6-fixed-ip=ip-addr,port-id=port-uuid,tag=tag,vif-model=model,"
++            "vif-pci-address=pci-address>",
+     action='append',
+     dest='nics',
+     default=[],
+@@ -826,14 +828,16 @@ def _boot(cs, args):
+            "v4-fixed-ip: IPv4 fixed address for NIC (optional), "
+            "v6-fixed-ip: IPv6 fixed address for NIC (optional), "
+            "port-id: attach NIC to port with this UUID, "
+-           "vif-model: emulated hardware device type (optional), "
+            "tag: interface metadata tag (optional) "
++           "vif-model: emulated hardware device type (optional), "
++           "vif-pci-address: emulated device PCI address (optional), "
+            "(either port-id or net-id must be provided)."))
+ @utils.arg(
+     '--nic',
+     metavar="<auto,none,"
+             "net-id=net-uuid,net-name=network-name,port-id=port-uuid,"
+-            "v4-fixed-ip=ip-addr,v6-fixed-ip=ip-addr>",
++            "v4-fixed-ip=ip-addr,v6-fixed-ip=ip-addr,vif-model=model,"
++            "vif-pci-address=pci-address>",
+     action='append',
+     dest='nics',
+     default=[],
+@@ -853,12 +857,15 @@ def _boot(cs, args):
+            "v4-fixed-ip: IPv4 fixed address for NIC (optional), "
+            "v6-fixed-ip: IPv6 fixed address for NIC (optional), "
+            "port-id: attach NIC to port with this UUID "
++           "vif-model: emulated hardware device type (optional), "
++           "vif-pci-address: emulated device PCI address (optional), "
+            "(either port-id or net-id must be provided)."))
+ @utils.arg(
+     '--nic',
+     metavar="<auto,none,"
+             "net-id=net-uuid,net-name=network-name,port-id=port-uuid,"
+-            "v4-fixed-ip=ip-addr,v6-fixed-ip=ip-addr,tag=tag>",
++            "v4-fixed-ip=ip-addr,v6-fixed-ip=ip-addr,tag=tag,vif-model=model,"
++            "vif-pci-address=pci-address>",
+     action='append',
+     dest='nics',
+     default=[],
+@@ -877,8 +884,9 @@ def _boot(cs, args):
+            "v4-fixed-ip: IPv4 fixed address for NIC (optional), "
+            "v6-fixed-ip: IPv6 fixed address for NIC (optional), "
+            "port-id: attach NIC to port with this UUID, "
+-           "vif-model: emulated hardware device type (optional), "
+            "tag: interface metadata tag (optional) "
++           "vif-model: emulated hardware device type (optional), "
++           "vif-pci-address: emulated device PCI address (optional), "
+            "(either port-id or net-id must be provided)."))
+ @utils.arg(
+     '--config-drive',
+-- 
+2.7.4
+

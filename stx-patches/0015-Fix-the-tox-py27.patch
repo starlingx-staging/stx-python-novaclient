@@ -1,0 +1,46 @@
+From 0e4c09e06d42be3017693f7f86e60b908f5aa47d Mon Sep 17 00:00:00 2001
+From: Angie Wang <Angie.Wang@windriver.com>
+Date: Tue, 13 Feb 2018 16:39:24 -0500
+Subject: [PATCH 15/20] Fix the tox py27
+
+---
+ novaclient/tests/unit/v2/test_server_groups.py | 1 +
+ novaclient/tests/unit/v2/test_shell.py         | 4 +++-
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/novaclient/tests/unit/v2/test_server_groups.py b/novaclient/tests/unit/v2/test_server_groups.py
+index 508a14c..c607afa 100644
+--- a/novaclient/tests/unit/v2/test_server_groups.py
++++ b/novaclient/tests/unit/v2/test_server_groups.py
+@@ -57,6 +57,7 @@ class ServerGroupsTest(utils.FixturedTestCase):
+ 
+     def test_create_server_group(self):
+         kwargs = {'name': 'ig1',
++                  'project_id': 'myproject',
+                   'metadata': ['wrs-sg:best_effort=false'],
+                   'policies': ['anti-affinity']}
+         server_group = self.cs.server_groups.create(**kwargs)
+diff --git a/novaclient/tests/unit/v2/test_shell.py b/novaclient/tests/unit/v2/test_shell.py
+index 542f9df..e0b1d09 100644
+--- a/novaclient/tests/unit/v2/test_shell.py
++++ b/novaclient/tests/unit/v2/test_shell.py
+@@ -3033,13 +3033,15 @@ class ShellTest(utils.TestCase):
+         self.run_command('keypair-delete test')
+         self.assert_called('DELETE', '/os-keypairs/test')
+ 
+-    # WRS:extension -- metadata
++    # WRS:extension -- metadata, tenant
+     def test_create_server_group(self):
+         self.run_command('server-group-create wjsg affinity '
++                         '--tenant myproject '
+                          '--metadata best_effort=1,group_size=2')
+         self.assert_called_anytime('POST', '/os-server-groups',
+                                    {'server_group': {
+                                        'name': 'wjsg',
++                                       'project_id': 'myproject',
+                                        'metadata': {
+                                            'best_effort': '1',
+                                            'group_size': '2'
+-- 
+2.7.4
+

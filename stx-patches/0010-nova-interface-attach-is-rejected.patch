@@ -1,0 +1,29 @@
+From bff8d9f0e97a2378415eeb440863765123c3b18d Mon Sep 17 00:00:00 2001
+From: Joseph Richard <Joseph.Richard@windriver.com>
+Date: Wed, 29 Nov 2017 14:45:46 -0500
+Subject: [PATCH 10/20] Bug 261 - nova interface-attach is rejected
+
+This commit fixes a bug introduced in cherry-picking 2a779db3,
+where tag is not defaulting to None.  This results in interface
+attach failing unless tag is set.
+---
+ novaclient/v2/servers.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/novaclient/v2/servers.py b/novaclient/v2/servers.py
+index 562c2ff..971111c 100644
+--- a/novaclient/v2/servers.py
++++ b/novaclient/v2/servers.py
+@@ -603,7 +603,8 @@ class Server(base.Resource):
+                                              vif_model)
+ 
+     @api_versions.wraps("2.49")
+-    def interface_attach(self, port_id, net_id, fixed_ip, tag, vif_model=None):
++    def interface_attach(self, port_id, net_id, fixed_ip, tag=None,
++                         vif_model=None):
+         """
+         Attach a network interface to an instance with an optional tag.
+         """
+-- 
+2.7.4
+

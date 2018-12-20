@@ -1,0 +1,514 @@
+From 95a3e97895ea47f65e457e5f091e13f9a28e9785 Mon Sep 17 00:00:00 2001
+From: syang2 <sen.yang@windriver.com>
+Date: Fri, 14 Jul 2017 14:19:05 -0400
+Subject: [PATCH 05/20] nova host-servers-migrate command applies to multiple hosts
+
+Original openstack bug report:  https://bugs.launchpad.net/python-novaclient/+bug/1667794
+
+This commit fixes the pattern match problem in novaclient where when a hostname parameter is
+given, instead of taking action on the specific host, the action is taken against the whole
+list of hosts which has the same pattern match as the given hostname. For example, when user
+do "nova host-servers-migrate compute-1", the servers migration happens on compute-1,
+compute1#, compute1## etc. Here is the list of scenarios impacted:
+
+  nova host-servers-migrate <hostname>
+  nova host-meta <hostname>
+  nova host-evacuate  <hostname>
+  nova host-evacuate-live <hostname>
+
+__TYPE_single
+__TAG_pattern_match
+__R4_commit_3512750
+---
+ novaclient/tests/unit/v2/fakes.py      |  38 +++++++++
+ novaclient/tests/unit/v2/test_shell.py | 152 +++++++++++++--------------------
+ novaclient/v2/shell.py                 |  95 +++++++++++++--------
+ 3 files changed, 160 insertions(+), 125 deletions(-)
+
+diff --git a/novaclient/tests/unit/v2/fakes.py b/novaclient/tests/unit/v2/fakes.py
+index e317b03..2f4618e 100644
+--- a/novaclient/tests/unit/v2/fakes.py
++++ b/novaclient/tests/unit/v2/fakes.py
+@@ -660,6 +660,12 @@ class FakeSessionClient(base_client.SessionClient):
+     def post_servers_uuid4_metadata(self, **kw):
+         return (204, {}, {'metadata': {'key1': 'val1'}})
+ 
++    def post_servers_uuid5_metadata(self, **kw):
++        return (204, {}, {'metadata': {'key1': 'val1'}})
++
++    def post_servers_uuid6_metadata(self, **kw):
++        return (204, {}, {'metadata': {'key1': 'val1'}})
++
+     def delete_servers_uuid1_metadata_key1(self, **kw):
+         return (200, {}, {'data': 'Fake diagnostics'})
+ 
+@@ -672,6 +678,12 @@ class FakeSessionClient(base_client.SessionClient):
+     def delete_servers_uuid4_metadata_key1(self, **kw):
+         return (200, {}, {'data': 'Fake diagnostics'})
+ 
++    def delete_servers_uuid5_metadata_key1(self, **kw):
++        return (200, {}, {'data': 'Fake diagnostics'})
++
++    def delete_servers_uuid6_metadata_key1(self, **kw):
++        return (200, {}, {'data': 'Fake diagnostics'})
++
+     def get_servers_1234_os_security_groups(self, **kw):
+         return (200, {}, {
+             "security_groups": [{
+@@ -1805,6 +1817,26 @@ class FakeSessionClient(base_client.SessionClient):
+                      {'name': 'inst4', 'uuid': 'uuid4'}]}]
+         })
+ 
++    def get_os_hypervisors_hyper1_servers(self, **kw):
++        return (200, {}, {
++            'hypervisors': [
++                {'id': 1234,
++                 'hypervisor_hostname': 'hyper1',
++                 'servers': [
++                     {'name': 'inst1', 'uuid': 'uuid1'},
++                     {'name': 'inst2', 'uuid': 'uuid2'}]}]
++        })
++
++    def get_os_hypervisors_hyper2_servers(self, **kw):
++        return (200, {}, {
++            'hypervisors': [
++                {'id': 5678,
++                 'hypervisor_hostname': 'hyper2',
++                 'servers': [
++                     {'name': 'inst3', 'uuid': 'uuid3'},
++                     {'name': 'inst4', 'uuid': 'uuid4'}]}]
++        })
++
+     def get_os_hypervisors_hyper_no_servers_servers(self, **kw):
+         return (200, {}, {'hypervisors':
+                           [{'id': 1234, 'hypervisor_hostname': 'hyper1'}]})
+@@ -2013,6 +2045,12 @@ class FakeSessionClient(base_client.SessionClient):
+     def post_servers_uuid4_action(self, **kw):
+         return 202, {}, {}
+ 
++    def post_servers_uuid5_action(self, **kw):
++        return 202, {}, {}
++
++    def post_servers_uuid6_action(self, **kw):
++        return 202, {}, {}
++
+     def get_os_cells_child_cell(self, **kw):
+         cell = {'cell': {
+             'username': 'cell1_user',
+diff --git a/novaclient/tests/unit/v2/test_shell.py b/novaclient/tests/unit/v2/test_shell.py
+index 25f0da4..542f9df 100644
+--- a/novaclient/tests/unit/v2/test_shell.py
++++ b/novaclient/tests/unit/v2/test_shell.py
+@@ -1620,8 +1620,10 @@ class ShellTest(utils.TestCase):
+ 
+     def test_show_no_image(self):
+         self.run_command('show 9012')
++        # self.assert_called('GET', '/servers/9012', pos=-2)
+         self.assert_called('GET', '/servers/9012', pos=-2)
+         self.assert_called('GET', '/flavors/1', pos=-1)
++        # self.assert_called('GET', '/flavors/1', pos=-1)
+ 
+     def test_show_bad_id(self):
+         self.assertRaises(exceptions.CommandError,
+@@ -1754,28 +1756,26 @@ class ShellTest(utils.TestCase):
+         self.assert_called('DELETE', '/servers/1234/metadata/key2', pos=-2)
+ 
+     def test_set_host_meta(self):
+-        self.run_command('host-meta hyper set key1=val1 key2=val2')
+-        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
++        self.run_command('host-meta hyper1 set key1=val1 key2=val2')
++        self.assert_called('GET', '/os-hypervisors/hyper1/servers', pos=0)
+         self.assert_called('POST', '/servers/uuid1/metadata',
+                            {'metadata': {'key1': 'val1', 'key2': 'val2'}},
+                            pos=1)
+         self.assert_called('POST', '/servers/uuid2/metadata',
+                            {'metadata': {'key1': 'val1', 'key2': 'val2'}},
+                            pos=2)
+-        self.assert_called('POST', '/servers/uuid3/metadata',
+-                           {'metadata': {'key1': 'val1', 'key2': 'val2'}},
+-                           pos=3)
+-        self.assert_called('POST', '/servers/uuid4/metadata',
+-                           {'metadata': {'key1': 'val1', 'key2': 'val2'}},
+-                           pos=4)
++
++    def test_set_host_meta_no_match(self):
++        cmd = 'host-meta hyper set key1=val1 key2=val2'
++        self.assertRaises(exceptions.NotFound, self.run_command, cmd)
+ 
+     def test_set_host_meta_with_no_servers(self):
+-        self.run_command('host-meta hyper_no_servers set key1=val1 key2=val2')
+-        self.assert_called('GET', '/os-hypervisors/hyper_no_servers/servers')
++        cmd = 'host-meta hyper_no_servers set key1=val1 key2=val2'
++        self.assertRaises(exceptions.NotFound, self.run_command, cmd)
+ 
+     def test_delete_host_meta(self):
+-        self.run_command('host-meta hyper delete key1')
+-        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
++        self.run_command('host-meta hyper1 delete key1')
++        self.assert_called('GET', '/os-hypervisors/hyper1/servers', pos=0)
+         self.assert_called('DELETE', '/servers/uuid1/metadata/key1', pos=1)
+         self.assert_called('DELETE', '/servers/uuid2/metadata/key1', pos=2)
+ 
+@@ -2125,90 +2125,82 @@ class ShellTest(utils.TestCase):
+         self.assert_called('DELETE', '/servers/1234/migrations/1')
+ 
+     def test_host_evacuate_live_with_no_target_host(self):
+-        self.run_command('host-evacuate-live hyper')
+-        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
++        self.run_command('host-evacuate-live hyper1')
++        self.assert_called('GET', '/os-hypervisors/hyper1/servers', pos=0)
+         body = {'os-migrateLive': {'host': None,
+                                    'block_migration': False,
+                                    'disk_over_commit': False}}
+         self.assert_called('POST', '/servers/uuid1/action', body, pos=1)
+         self.assert_called('POST', '/servers/uuid2/action', body, pos=2)
+-        self.assert_called('POST', '/servers/uuid3/action', body, pos=3)
+-        self.assert_called('POST', '/servers/uuid4/action', body, pos=4)
++
++    def test_host_evacuate_live_no_match(self):
++        cmd = 'host-evacuate-live hyper'
++        self.assertRaises(exceptions.NotFound, self.run_command, cmd)
+ 
+     def test_host_evacuate_live_2_25(self):
+-        self.run_command('host-evacuate-live hyper', api_version='2.25')
+-        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
++        self.run_command('host-evacuate-live hyper1', api_version='2.25')
++        self.assert_called('GET', '/os-hypervisors/hyper1/servers', pos=0)
+         body = {'os-migrateLive': {'host': None, 'block_migration': 'auto'}}
+         self.assert_called('POST', '/servers/uuid1/action', body, pos=1)
+         self.assert_called('POST', '/servers/uuid2/action', body, pos=2)
+-        self.assert_called('POST', '/servers/uuid3/action', body, pos=3)
+-        self.assert_called('POST', '/servers/uuid4/action', body, pos=4)
+ 
+     def test_host_evacuate_live_with_target_host(self):
+-        self.run_command('host-evacuate-live hyper '
++        self.run_command('host-evacuate-live hyper1 '
+                          '--target-host hostname')
+-        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
++
++        self.assert_called('GET', '/os-hypervisors/hyper1/servers', pos=0)
+         body = {'os-migrateLive': {'host': 'hostname',
+                                    'block_migration': False,
+                                    'disk_over_commit': False}}
+         self.assert_called('POST', '/servers/uuid1/action', body, pos=1)
+         self.assert_called('POST', '/servers/uuid2/action', body, pos=2)
+-        self.assert_called('POST', '/servers/uuid3/action', body, pos=3)
+-        self.assert_called('POST', '/servers/uuid4/action', body, pos=4)
+ 
+     def test_host_evacuate_live_2_30(self):
+-        self.run_command('host-evacuate-live --force hyper '
++        self.run_command('host-evacuate-live --force hyper1 '
+                          '--target-host hostname',
+                          api_version='2.30')
+-        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
++
++        self.assert_called('GET', '/os-hypervisors/hyper1/servers', pos=0)
+         body = {'os-migrateLive': {'host': 'hostname',
+                                    'block_migration': 'auto',
+                                    'force': True}}
+         self.assert_called('POST', '/servers/uuid1/action', body, pos=1)
+         self.assert_called('POST', '/servers/uuid2/action', body, pos=2)
+-        self.assert_called('POST', '/servers/uuid3/action', body, pos=3)
+-        self.assert_called('POST', '/servers/uuid4/action', body, pos=4)
+ 
+     def test_host_evacuate_live_with_block_migration(self):
+-        self.run_command('host-evacuate-live --block-migrate hyper')
+-        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
++        self.run_command('host-evacuate-live --block-migrate hyper2')
++        self.assert_called('GET', '/os-hypervisors/hyper2/servers', pos=0)
+         body = {'os-migrateLive': {'host': None,
+                                    'block_migration': True,
+                                    'disk_over_commit': False}}
+-        self.assert_called('POST', '/servers/uuid1/action', body, pos=1)
+-        self.assert_called('POST', '/servers/uuid2/action', body, pos=2)
+-        self.assert_called('POST', '/servers/uuid3/action', body, pos=3)
+-        self.assert_called('POST', '/servers/uuid4/action', body, pos=4)
++        self.assert_called('POST', '/servers/uuid3/action', body, pos=1)
++        self.assert_called('POST', '/servers/uuid4/action', body, pos=2)
+ 
+     def test_host_evacuate_live_with_block_migration_2_25(self):
+-        self.run_command('host-evacuate-live --block-migrate hyper',
++        self.run_command('host-evacuate-live --block-migrate hyper2',
+                          api_version='2.25')
+-        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
++        self.assert_called('GET', '/os-hypervisors/hyper2/servers', pos=0)
+         body = {'os-migrateLive': {'host': None, 'block_migration': True}}
+-        self.assert_called('POST', '/servers/uuid1/action', body, pos=1)
+-        self.assert_called('POST', '/servers/uuid2/action', body, pos=2)
+-        self.assert_called('POST', '/servers/uuid3/action', body, pos=3)
+-        self.assert_called('POST', '/servers/uuid4/action', body, pos=4)
++        self.assert_called('POST', '/servers/uuid3/action', body, pos=1)
++        self.assert_called('POST', '/servers/uuid4/action', body, pos=2)
+ 
+     def test_host_evacuate_live_with_disk_over_commit(self):
+-        self.run_command('host-evacuate-live --disk-over-commit hyper')
+-        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
++        self.run_command('host-evacuate-live --disk-over-commit hyper2')
++        self.assert_called('GET', '/os-hypervisors/hyper2/servers', pos=0)
+         body = {'os-migrateLive': {'host': None,
+                                    'block_migration': False,
+                                    'disk_over_commit': True}}
+-        self.assert_called('POST', '/servers/uuid1/action', body, pos=1)
+-        self.assert_called('POST', '/servers/uuid2/action', body, pos=2)
+-        self.assert_called('POST', '/servers/uuid3/action', body, pos=3)
+-        self.assert_called('POST', '/servers/uuid4/action', body, pos=4)
++        self.assert_called('POST', '/servers/uuid3/action', body, pos=1)
++        self.assert_called('POST', '/servers/uuid4/action', body, pos=2)
+ 
+     def test_host_evacuate_live_with_disk_over_commit_2_25(self):
+         self.assertRaises(SystemExit, self.run_command,
+-                          'host-evacuate-live --disk-over-commit hyper',
++                          'host-evacuate-live --disk-over-commit hyper2',
+                           api_version='2.25')
+ 
+     def test_host_evacuate_list_with_max_servers(self):
+-        self.run_command('host-evacuate-live --max-servers 1 hyper')
+-        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
++        self.run_command('host-evacuate-live --max-servers 1 hyper1')
++        self.assert_called('GET', '/os-hypervisors/hyper1/servers', pos=0)
+         body = {'os-migrateLive': {'host': None,
+                                    'block_migration': False,
+                                    'disk_over_commit': False}}
+@@ -2401,91 +2393,69 @@ class ShellTest(utils.TestCase):
+             'GET', '/os-hosts/sample-host/reboot')
+ 
+     def test_host_evacuate_v2_14(self):
+-        self.run_command('host-evacuate hyper --target target_hyper',
++        self.run_command('host-evacuate hyper1 --target target_hyper',
+                          api_version='2.14')
+-        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
++        self.assert_called('GET', '/os-hypervisors/hyper1/servers', pos=0)
+         self.assert_called('POST', '/servers/uuid1/action',
+                            {'evacuate': {'host': 'target_hyper'}}, pos=1)
+         self.assert_called('POST', '/servers/uuid2/action',
+                            {'evacuate': {'host': 'target_hyper'}}, pos=2)
+-        self.assert_called('POST', '/servers/uuid3/action',
+-                           {'evacuate': {'host': 'target_hyper'}}, pos=3)
+-        self.assert_called('POST', '/servers/uuid4/action',
+-                           {'evacuate': {'host': 'target_hyper'}}, pos=4)
+ 
+     def test_host_evacuate(self):
+-        self.run_command('host-evacuate hyper --target target_hyper')
+-        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
++        self.run_command('host-evacuate hyper1 --target target_hyper')
++        self.assert_called('GET', '/os-hypervisors/hyper1/servers', pos=0)
+         self.assert_called('POST', '/servers/uuid1/action',
+                            {'evacuate': {'host': 'target_hyper',
+                                          'onSharedStorage': False}}, pos=1)
+         self.assert_called('POST', '/servers/uuid2/action',
+                            {'evacuate': {'host': 'target_hyper',
+                                          'onSharedStorage': False}}, pos=2)
+-        self.assert_called('POST', '/servers/uuid3/action',
+-                           {'evacuate': {'host': 'target_hyper',
+-                                         'onSharedStorage': False}}, pos=3)
+-        self.assert_called('POST', '/servers/uuid4/action',
+-                           {'evacuate': {'host': 'target_hyper',
+-                                         'onSharedStorage': False}}, pos=4)
++
++    def test_host_evacuate_no_match(self):
++        cmd = 'host-evacuate hyper --target target_hyper'
++        self.assertRaises(exceptions.NotFound, self.run_command, cmd)
+ 
+     def test_host_evacuate_v2_29(self):
+-        self.run_command('host-evacuate hyper --target target_hyper --force',
++        self.run_command('host-evacuate hyper1 --target target_hyper --force',
+                          api_version='2.29')
+-        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
++        self.assert_called('GET', '/os-hypervisors/hyper1/servers', pos=0)
+         self.assert_called('POST', '/servers/uuid1/action',
+                            {'evacuate': {'host': 'target_hyper', 'force': True}
+                             }, pos=1)
+         self.assert_called('POST', '/servers/uuid2/action',
+                            {'evacuate': {'host': 'target_hyper', 'force': True}
+                             }, pos=2)
+-        self.assert_called('POST', '/servers/uuid3/action',
+-                           {'evacuate': {'host': 'target_hyper', 'force': True}
+-                            }, pos=3)
+-        self.assert_called('POST', '/servers/uuid4/action',
+-                           {'evacuate': {'host': 'target_hyper', 'force': True}
+-                            }, pos=4)
+ 
+     def test_host_evacuate_with_shared_storage(self):
+         self.run_command(
+-            'host-evacuate --on-shared-storage hyper --target target_hyper')
+-        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
++            'host-evacuate --on-shared-storage hyper1 --target target_hyper')
++        self.assert_called('GET', '/os-hypervisors/hyper1/servers', pos=0)
+         self.assert_called('POST', '/servers/uuid1/action',
+                            {'evacuate': {'host': 'target_hyper',
+                                          'onSharedStorage': True}}, pos=1)
+         self.assert_called('POST', '/servers/uuid2/action',
+                            {'evacuate': {'host': 'target_hyper',
+                                          'onSharedStorage': True}}, pos=2)
+-        self.assert_called('POST', '/servers/uuid3/action',
+-                           {'evacuate': {'host': 'target_hyper',
+-                                         'onSharedStorage': True}}, pos=3)
+-        self.assert_called('POST', '/servers/uuid4/action',
+-                           {'evacuate': {'host': 'target_hyper',
+-                                         'onSharedStorage': True}}, pos=4)
+ 
+     def test_host_evacuate_with_no_target_host(self):
+-        self.run_command('host-evacuate --on-shared-storage hyper')
+-        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
++        self.run_command('host-evacuate --on-shared-storage hyper1')
++        self.assert_called('GET', '/os-hypervisors/hyper1/servers', pos=0)
+         self.assert_called('POST', '/servers/uuid1/action',
+                            {'evacuate': {'onSharedStorage': True}}, pos=1)
+         self.assert_called('POST', '/servers/uuid2/action',
+                            {'evacuate': {'onSharedStorage': True}}, pos=2)
+-        self.assert_called('POST', '/servers/uuid3/action',
+-                           {'evacuate': {'onSharedStorage': True}}, pos=3)
+-        self.assert_called('POST', '/servers/uuid4/action',
+-                           {'evacuate': {'onSharedStorage': True}}, pos=4)
+ 
+     def test_host_servers_migrate(self):
+-        self.run_command('host-servers-migrate hyper')
+-        self.assert_called('GET', '/os-hypervisors/hyper/servers', pos=0)
++        self.run_command('host-servers-migrate hyper1')
++        self.assert_called('GET', '/os-hypervisors/hyper1/servers', pos=0)
+         self.assert_called('POST',
+                            '/servers/uuid1/action', {'migrate': None}, pos=1)
+         self.assert_called('POST',
+                            '/servers/uuid2/action', {'migrate': None}, pos=2)
+-        self.assert_called('POST',
+-                           '/servers/uuid3/action', {'migrate': None}, pos=3)
+-        self.assert_called('POST',
+-                           '/servers/uuid4/action', {'migrate': None}, pos=4)
++
++    def test_host_servers_migrate_no_match(self):
++        cmd = 'host-servers-migrate hyper'
++        self.assertRaises(exceptions.NotFound, self.run_command, cmd)
+ 
+     def test_hypervisor_list(self):
+         self.run_command('hypervisor-list')
+diff --git a/novaclient/v2/shell.py b/novaclient/v2/shell.py
+index 95d6d49..e7dbfe3 100644
+--- a/novaclient/v2/shell.py
++++ b/novaclient/v2/shell.py
+@@ -4999,14 +4999,20 @@ def do_host_evacuate(cs, args):
+     """Evacuate all instances from failed host."""
+ 
+     hypervisors = cs.hypervisors.search(args.host, servers=True)
+-    response = []
+-    for hyper in hypervisors:
+-        if hasattr(hyper, 'servers'):
+-            for server in hyper.servers:
+-                response.append(_server_evacuate(cs, server, args))
+-
+-    utils.print_list(response,
+-                     ["Server UUID", "Evacuate Accepted", "Error Message"])
++    if hypervisors:
++        response = []
++        for hyper in hypervisors:
++            if hyper.hypervisor_hostname == args.host:
++                if hasattr(hyper, 'servers'):
++                    for server in hyper.servers:
++                        response.append(_server_evacuate(cs, server, args))
++                break
++        else:
++            msg = (_("No hypervisor matching '%s' could be found.") %
++                   (args.host))
++            raise exceptions.NotFound(404, msg)
++        utils.print_list(response, ["Server UUID",
++                                    "Evacuate Accepted", "Error Message"])
+ 
+ 
+ def _server_live_migrate(cs, server, args):
+@@ -5081,17 +5087,24 @@ def do_host_evacuate_live(cs, args):
+     to other available hosts.
+     """
+     hypervisors = cs.hypervisors.search(args.host, servers=True)
+-    response = []
+-    migrating = 0
+-    for hyper in hypervisors:
+-        for server in getattr(hyper, 'servers', []):
+-            response.append(_server_live_migrate(cs, server, args))
+-            migrating += 1
+-            if args.max_servers is not None and migrating >= args.max_servers:
++    if hypervisors:
++        response = []
++        migrating = 0
++        for hyper in hypervisors:
++            if hyper.hypervisor_hostname == args.host:
++                for server in getattr(hyper, 'servers', []):
++                    response.append(_server_live_migrate(cs, server, args))
++                    migrating = migrating + 1
++                    if (args.max_servers is not None and
++                            migrating >= args.max_servers):
++                        break
+                 break
+-
+-    utils.print_list(response, ["Server UUID", "Live Migration Accepted",
+-                                "Error Message"])
++        else:
++            msg = (_("No hypervisor matching '%s' could be found.") %
++                   (args.host))
++            raise exceptions.NotFound(404, msg)
++        utils.print_list(response, ["Server UUID", "Live Migration Accepted",
++                                    "Error Message"])
+ 
+ 
+ class HostServersMigrateResponse(base.Resource):
+@@ -5122,14 +5135,20 @@ def do_host_servers_migrate(cs, args):
+     """
+ 
+     hypervisors = cs.hypervisors.search(args.host, servers=True)
+-    response = []
+-    for hyper in hypervisors:
+-        if hasattr(hyper, 'servers'):
+-            for server in hyper.servers:
+-                response.append(_server_migrate(cs, server))
+-
+-    utils.print_list(response,
+-                     ["Server UUID", "Migration Accepted", "Error Message"])
++    if hypervisors:
++        response = []
++        for hyper in hypervisors:
++            if hyper.hypervisor_hostname == args.host:
++                if hasattr(hyper, 'servers'):
++                    for server in hyper.servers:
++                        response.append(_server_migrate(cs, server))
++                break
++        else:
++            msg = (_("No hypervisor matching '%s' could be found.") %
++                    (args.host))
++            raise exceptions.NotFound(404, msg)
++        utils.print_list(response, ["Server UUID",
++                         "Migration Accepted", "Error Message"])
+ 
+ 
+ @utils.arg(
+@@ -5211,14 +5230,22 @@ def do_list_extensions(cs, _args):
+ def do_host_meta(cs, args):
+     """Set or Delete metadata on all instances of a host."""
+     hypervisors = cs.hypervisors.search(args.host, servers=True)
+-    for hyper in hypervisors:
+-        metadata = _extract_metadata(args)
+-        if hasattr(hyper, 'servers'):
+-            for server in hyper.servers:
+-                if args.action == 'set':
+-                    cs.servers.set_meta(server['uuid'], metadata)
+-                elif args.action == 'delete':
+-                    cs.servers.delete_meta(server['uuid'], metadata.keys())
++    if hypervisors:
++        for hyper in hypervisors:
++            if hyper.hypervisor_hostname == args.host:
++                metadata = _extract_metadata(args)
++                if hasattr(hyper, 'servers'):
++                    for server in hyper.servers:
++                        if args.action == 'set':
++                            cs.servers.set_meta(server['uuid'], metadata)
++                        elif args.action == 'delete':
++                            cs.servers.delete_meta(server['uuid'],
++                                                   metadata.keys())
++                break
++        else:
++            msg = (_("No hypervisor matching '%s' could be found.") %
++                    (args.host))
++            raise exceptions.NotFound(404, msg)
+ 
+ 
+ def _print_migrations(cs, migrations):
+-- 
+2.7.4
+
